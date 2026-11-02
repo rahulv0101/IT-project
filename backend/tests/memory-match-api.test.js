@@ -242,6 +242,62 @@ describe.sequential('Memory Match start and refresh API', () => {
     });
   });
 
+  it('samples different questions across plays instead of always the same six', async () => {
+    const quizId = await addQuiz(
+      fixture.module,
+      fixture.lecturer,
+      `Memory Large ${crypto.randomUUID().slice(0, 6)}`,
+      20,
+    );
+    const seen = new Set();
+    for (const name of ['student', 'otherStudent', 'locked']) {
+      const started = await start(await login(name), quizId);
+      expect(started.status).toBe(200);
+      const state = await playState(started.body.data.playId);
+      expect(pairs(state)).toHaveLength(6);
+      for (const card of state.cards) seen.add(card.questionId);
+    }
+    expect(seen.size).toBeGreaterThan(6);
+  });
+
+  it('never deals two answer cards with identical text', async () => {
+    const quizId = await addQuiz(
+      fixture.module,
+      fixture.lecturer,
+      `Memory Dupes ${crypto.randomUUID().slice(0, 6)}`,
+      10,
+    );
+    await pool.query(
+      `UPDATE question_options SET option_text='True'
+       WHERE is_correct=true AND question_id IN (
+         SELECT question_id FROM questions WHERE quiz_id=$1 ORDER BY question_id LIMIT 4)`,
+      [quizId],
+    );
+    const started = await start(await login('student'), quizId);
+    expect(started.status).toBe(200);
+    const answers = (await playState(started.body.data.playId)).cards
+      .filter((card) => card.kind === 'answer')
+      .map((card) => card.text.toLowerCase());
+    expect(new Set(answers).size).toBe(answers.length);
+  });
+
+  it('counts only distinct answers toward the six-pair minimum', async () => {
+    const quizId = await addQuiz(
+      fixture.module,
+      fixture.lecturer,
+      `Memory Booleans ${crypto.randomUUID().slice(0, 6)}`,
+      8,
+    );
+    await pool.query(
+      `UPDATE question_options SET option_text='True'
+       WHERE is_correct=true AND question_id IN (SELECT question_id FROM questions WHERE quiz_id=$1)`,
+      [quizId],
+    );
+    const response = await start(await login('student'), quizId);
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe('NOT_ENOUGH_QUESTIONS');
+  });
+
   it('refuses a student who is not enrolled in the module', async () => {
     const response = await start(await login('outsider'), fixture.practice);
     expect(response.status).toBe(403);

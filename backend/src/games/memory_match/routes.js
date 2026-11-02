@@ -267,7 +267,12 @@ export function registerMemoryMatchRoutes({
   const eligibleQuestions = async (client, quizId) =>
     (
       await client.query(
-        `SELECT q.question_id,q.question_text,o.option_text AS correct_option_text FROM questions q JOIN question_options o ON o.question_id=q.question_id AND o.is_correct=true WHERE q.quiz_id=$1 AND length(q.question_text)<=140 AND length(o.option_text)<=60 ORDER BY q.question_id LIMIT $2`,
+        `SELECT question_id,question_text,correct_option_text FROM (
+           SELECT DISTINCT ON (lower(o.option_text)) q.question_id,q.question_text,o.option_text AS correct_option_text
+           FROM questions q JOIN question_options o ON o.question_id=q.question_id AND o.is_correct=true
+           WHERE q.quiz_id=$1 AND length(q.question_text)<=140 AND length(o.option_text)<=60
+           ORDER BY lower(o.option_text),random()
+         ) distinct_answers ORDER BY random() LIMIT $2`,
         [quizId, MEMORY_DEFAULT_PAIRS],
       )
     ).rows;
@@ -285,7 +290,7 @@ export function registerMemoryMatchRoutes({
         if (!quiz) return client.query('ROLLBACK');
         const count = (
           await client.query(
-            `SELECT count(*)::int AS count FROM questions q JOIN question_options o ON o.question_id=q.question_id AND o.is_correct=true WHERE q.quiz_id=$1 AND length(q.question_text)<=140 AND length(o.option_text)<=60`,
+            `SELECT count(DISTINCT lower(o.option_text))::int AS count FROM questions q JOIN question_options o ON o.question_id=q.question_id AND o.is_correct=true WHERE q.quiz_id=$1 AND length(q.question_text)<=140 AND length(o.option_text)<=60`,
             [data.quizId],
           )
         ).rows[0].count;
