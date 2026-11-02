@@ -23,6 +23,8 @@ const databaseTests = [
 
 export default defineConfig({
   test: {
+    maxWorkers: 4,
+    minWorkers: 1,
     exclude: [
       'backend/tests/study-groups-api.test.js',
       '**/node_modules/**',

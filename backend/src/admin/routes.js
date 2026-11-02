@@ -26,7 +26,7 @@ const personName = z
   .trim()
   .min(1)
   .max(50)
-  .regex(/^[\p{L}][\p{L}\p{M} '\-]*$/u)
+  .regex(/^[\p{L}][\p{L}\p{M} '-]*$/u)
   .refine(noProfanity(), { message: profanityMessage });
 
 export function registerAdminRoutes({

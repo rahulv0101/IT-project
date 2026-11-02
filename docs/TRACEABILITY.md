@@ -294,6 +294,24 @@ Live results and coverage limitations are recorded in `docs/AI_PDF_DIAGNOSIS.md`
 
 # Eight-question local AI follow-up (2026-11-02)
 
+## OpenRouter switch verification (2026-11-02)
+
+The active local environment now selects OpenRouter at
+`https://openrouter.ai/api/v1` with `anthropic/claude-haiku-5.5` and no model
+fallbacks. The example environment and `docs/OPENROUTER.md` document the setup;
+the API key is stored only in the ignored local `.env`.
+
+A live eight-question request through FastAPI `/generate-quiz` using the bundled
+database text fixture returned HTTP 200 in 25.55 seconds, with exactly eight
+questions. Backend worker validation is checked separately against that output.
+This verifies real provider generation through the service; it does not establish
+full-PDF coverage, human-reviewed quality or database persistence for this run.
+The offline Python suite excluding the four Windows-specific launcher tests
+passes 55 tests, including hosted error classification without secret disclosure.
+The Windows launcher tests were not run on this Mac.
+
+The earlier Ollama evidence below remains historical.
+
 `ai-service/tests/test_openai_compatible_hardening.py` independently covers eight
 validated single-question batches, configured budgets, source-window movement
 after rejection, separation of untrusted source text and grounding retry feedback.
@@ -301,3 +319,5 @@ Python: 55 passed, zero skipped. INV-11 is retained: invalid or incomplete outpu
 is not persisted. Live evidence in `AI_TEST_REPORT.md` is **not verified for reliable
 eight-question generation**: three attempts failed; no quiz saved. Mock browser
 evidence must not be substituted for this outstanding real-model requirement.
+
+FR-23 polish evidence (2026-11-02): three added Memory Match API tests prove randomised question sampling, no duplicate answer text on a board, and a distinct-answer six-pair minimum; the games hub accessible-name change is covered by updated `frontend/src/main.test.jsx` queries.

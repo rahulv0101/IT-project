@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
+import { resolvePython } from '../../scripts/python-runtime.mjs';
 
 const run = promisify(execFile);
 const helper = fileURLToPath(
@@ -18,7 +19,7 @@ export async function extractResourceText(resource) {
   } else if (extension === 'pdf') {
     try {
       const result = await run(
-        process.env.PYTHON_EXECUTABLE || 'python',
+        resolvePython(),
         [helper, resource.file_location],
         {
           timeout: 120000,

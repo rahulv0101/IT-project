@@ -8,7 +8,7 @@ const { pool } = await import('../db.js');
 const { validateAiOutput, once } = await import('../scripts/ai-worker.js');
 
 let lecturer;
-let resource;
+let _resource;
 const validOutput = {
   title: 'Generated revision quiz',
   questions: [
@@ -56,7 +56,7 @@ const createJob = async (
       [lecturer, moduleRow.module_id, 'Worker Resource', file, bodyText.length],
     )
   ).rows[0];
-  resource = resourceRow;
+  _resource = resourceRow;
   return (
     await pool.query(
       `INSERT INTO ai_generation_jobs(requested_by,resource_id,question_count,status,updated_at) VALUES($1,$2,1,$3,$4) RETURNING job_id`,

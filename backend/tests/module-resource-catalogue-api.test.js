@@ -17,7 +17,7 @@ describe('student module and resource catalogue API', () => {
   let lecturer;
   let otherLecturer;
   let firstYear;
-  let secondYear;
+  let _secondYear;
   let ownModule;
   let otherModule;
   let lecturerAgent;
@@ -60,7 +60,7 @@ describe('student module and resource catalogue API', () => {
     ]);
     lecturer = users[0].rows[0].user_id;
     firstYear = users[1].rows[0].user_id;
-    secondYear = users[2].rows[0].user_id;
+    _secondYear = users[2].rows[0].user_id;
     otherLecturer = users[3].rows[0].user_id;
     ownModule = (
       await pool.query(

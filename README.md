@@ -4,6 +4,9 @@ New contributors should start with [`docs/CODE_MAP.md`](docs/CODE_MAP.md). It
 maps every major feature to its frontend, backend, database, worker, and test
 files; the largest source files also contain matching section banners.
 
+Quiz generation uses OpenRouter with Claude Haiku 5.5. See
+[`docs/OPENROUTER.md`](docs/OPENROUTER.md) for credentials, setup and verification.
+
 ## Local development
 
 Requirements: Node.js 22+ and Python 3.11+. PostgreSQL-compatible PGlite runs locally through the normal `pg` driver; no system database installation is required.
@@ -20,7 +23,7 @@ npm run test:e2e
 
 `db:start` creates `.pgdata/dev` and `.pgdata/test`, writes `.env`, starts the two local socket servers, and waits for both to accept connections. `npm run db:stop` stops them and `npm run db:status` checks them.
 
-Run the API, MockProvider AI service, and React frontend together with:
+Run the API, configured AI service, and React frontend together with:
 
 ```powershell
 npm run dev

@@ -1,4 +1,10 @@
 import os
+from pathlib import Path
+from config import load_clean_env
+
+load_clean_env(os.environ.get("EDUQUEST_ENV_FILE", Path(__file__).resolve().parent.parent / ".env"))
+if not os.environ.get("AI_SERVICE_TOKEN"):
+    raise RuntimeError("AI_SERVICE_TOKEN is missing: run npm run setup:token")
 
 import uvicorn
 from app import provider, require_service_token

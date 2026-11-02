@@ -45,7 +45,6 @@ import {
   authorQuestionSchema,
   matchesShortAnswer,
   publishChecklist,
-  lineDiff,
 } from './quizzes/validation.js';
 import { registerInfectedRoutes } from './games/infected/routes.js';
 import { registerIslandEscapeRoutes } from './games/island_escape/routes.js';
@@ -326,12 +325,6 @@ const scenarioConfig = z
       .max(30),
   })
   .strict();
-const labConfig = z.union([
-  codeLabConfig,
-  spreadsheetConfig,
-  calculatorConfig,
-  scenarioConfig,
-]);
 const sanitizeSubmission = (value) => {
   const text = JSON.stringify(value);
   if (text.length > 65_000) throw new Error('LAB_SUBMISSION_TOO_LARGE');
@@ -343,13 +336,20 @@ const parse = (schema, value, req, res, validationStatus = 400) => {
     const hasProfanity = result.error.issues.some(
       (issue) => issue.message === profanityMessage,
     );
-    error(
-      res,
-      hasProfanity ? 422 : validationStatus,
-      hasProfanity ? 'TEXT_NOT_ALLOWED' : 'VALIDATION_ERROR',
-      hasProfanity ? profanityMessage : 'Please check the submitted fields.',
-      requestId(req),
-    );
+    res.status(hasProfanity ? 422 : validationStatus).json({
+      error: {
+        code: hasProfanity ? 'TEXT_NOT_ALLOWED' : 'VALIDATION_ERROR',
+        message: hasProfanity
+          ? profanityMessage
+          : 'Please check the submitted fields.',
+        requestId: requestId(req),
+        fields: Object.fromEntries(
+          result.error.issues
+            .filter((issue) => issue.path.length === 1)
+            .map((issue) => [issue.path[0], issue.message]),
+        ),
+      },
+    });
     return null;
   }
   return result.data;
@@ -452,7 +452,10 @@ const registerSchema = z
     password: passwordSchema,
     confirmPassword: z.string().max(200).optional(),
     firstName: personNameSchema.optional(),
-    lastName: personNameSchema.optional().nullable(),
+    lastName: z.preprocess(
+      (value) => (typeof value === 'string' && !value.trim() ? null : value),
+      personNameSchema.optional().nullable(),
+    ),
     studentType: z.enum(['it', 'business']).optional(),
     studentYear: z.number().int().min(1).max(3).optional(),
     // Kept temporarily so existing users and offline fixtures can migrate safely.
@@ -1066,7 +1069,6 @@ app.patch('/api/v1/groups/:groupId', requireAuth, async (req, res, next) => {
         'Study group not found.',
         requestId(req),
       );
-    const current = existing.rows[0];
     const languages = data.languages || null;
     if (languages) {
       const rows = await pool.query(
@@ -4103,7 +4105,6 @@ app.get(
         'SELECT 1 FROM modules WHERE module_id=$1 AND lecturer_id=$2',
         [quiz.rows[0].module_id, req.user.userId],
       );
-      let scoredAttemptCompleted = false;
       if (req.user.role === 'student') {
         const enrolled = await pool.query(
           'SELECT 1 FROM enrollments WHERE module_id=$1 AND student_id=$2',
@@ -4117,11 +4118,6 @@ app.get(
             'You are not enrolled in this module.',
             requestId(req),
           );
-        const scored = await pool.query(
-          'SELECT 1 FROM quiz_attempts WHERE quiz_id=$1 AND student_id=$2 AND is_scored=true AND completion_time IS NOT NULL',
-          [req.params.quizId, req.user.userId],
-        );
-        scoredAttemptCompleted = Boolean(scored.rowCount);
       } else if (!owner.rowCount) {
         return error(
           res,

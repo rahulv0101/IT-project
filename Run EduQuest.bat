@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions
-set "ROOT=C:\Users\User\Desktop\IT project build"
+set "ROOT=%~dp0"
 if not exist "%ROOT%\" (
   echo FAILED: project folder does not exist: %ROOT%
   pause

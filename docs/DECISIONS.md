@@ -1,5 +1,18 @@
 # Decisions
 
+## 2026-11-02 — OpenRouter quiz generation
+
+- Switch the local environment and example configuration to OpenRouter's
+  OpenAI-compatible endpoint with `anthropic/claude-haiku-5.5`, as requested.
+- Keep credentials only in the ignored local `.env`. No model fallbacks are
+  configured; existing validation and transactional persistence stay mandatory.
+- Use five-question batches with 120-second provider, 150-second HTTP and
+  180-second worker budgets. Hosted source sampling remains 60,000 characters.
+- Make the AI checker provider-neutral and distinguish hosted authentication,
+  credit, connection and model errors from legacy local Ollama failures.
+- Keep historical Ollama instructions as optional documentation; no local
+  model service is required for the active configuration.
+
 ## 2026-10-09 — Milestone 1 foundation
 
 - Use UUID primary keys throughout; `group_members` uses a composite `(group_id, student_id)` primary key.
@@ -183,3 +196,10 @@ The 1B model repeated a question 19 times in one attempt and produced invalid
 output in the last attempt. These changes are not proof of reliable generation.
 Further live retries stopped; a more capable model must be evaluated before
 claiming this requirement done. No paid API was used for these attempts.
+
+## 2026-11-02 — Games polish: Memory Match selection and hub accessibility
+
+- Memory Match previously dealt the first six eligible questions by `question_id`, so every play of a quiz used the same six pairs. A play now samples six eligible questions at random in the database (`ORDER BY random()`); only card placement was randomised before.
+- Eligible Memory Match questions must have distinct correct-answer text (case-insensitive). Two answer cards with identical text, such as several "True" answers, were visually indistinguishable yet only one was the right partner. The six-pair minimum now counts distinct answers, so a quiz of only True/False answers returns `NOT_ENOUGH_QUESTIONS` instead of an unwinnable-looking board.
+- The games hub "Choose" buttons now carry the game name as their accessible name and expose `aria-pressed`, and the quiz picker is fetched only after a game is selected.
+- Game balance (Boss Battle exhaustion, Pixel Racer bot accuracy) was reviewed and deliberately left unchanged pending a product decision.

@@ -1,5 +1,8 @@
 # Offline AI with Ollama
 
+Historical optional setup: the active configuration now uses OpenRouter and
+Claude Haiku 5.5. Follow [OPENROUTER.md](OPENROUTER.md) for current setup.
+
 EduQuest can use a local Ollama model through the existing
 `openai_compatible` provider. The frontend never calls Ollama directly; the
 backend calls the AI service, which calls Ollama on localhost.

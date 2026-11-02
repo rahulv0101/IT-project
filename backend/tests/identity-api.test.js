@@ -40,6 +40,24 @@ describe('identity registration and verification', () => {
   });
 
   it.each([
+    ['', null],
+    ['   ', null],
+  ])('accepts an optional blank surname %j', async (lastName, expected) => {
+    const result = await request(app)
+      .post('/api/v1/auth/register')
+      .send({
+        email: `identity-optional-${crypto.randomUUID()}@example.com`,
+        password: strong,
+        confirmPassword: strong,
+        firstName: 'Single',
+        lastName,
+        studentType: 'it',
+      });
+    expect(result.status).toBe(201);
+    expect(result.body.user.last_name).toBe(expected);
+  });
+
+  it.each([
     ['digits', 'A1'],
     ['symbols', 'A!'],
     ['too long', 'A'.repeat(51)],

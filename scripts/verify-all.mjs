@@ -41,7 +41,13 @@ run('format', 'npm', ['run', 'format:check']);
 run('type-check', 'npm', ['run', 'typecheck']);
 run('build', 'npm', ['--prefix', 'frontend', 'run', 'build']);
 run('JavaScript suite', 'npm', ['test']);
-run('Python suite', 'python', ['-m', 'pytest', 'ai-service', '-q']);
+run('Python suite', process.execPath, [
+  'scripts/run-python.mjs',
+  '-m',
+  'pytest',
+  'ai-service',
+  '-q',
+]);
 run('Playwright and axe', 'npm', ['run', 'test:e2e']);
 if (has('REAL_TEST_DATABASE_URL'))
   run('real PostgreSQL', 'npm', ['run', 'test:db:real']);

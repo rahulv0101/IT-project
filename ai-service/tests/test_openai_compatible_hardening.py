@@ -234,3 +234,24 @@ def test_ollama_failure_messages(message, expected):
     provider = OpenAICompatibleProvider(fake, base_url="http://127.0.0.1:11434/v1/", api_key="ollama", model="m", retries=0, sleep=lambda _: None)
     with pytest.raises(RuntimeError, match=expected):
         provider.generate_quiz(request())
+
+
+@pytest.mark.parametrize(
+    ("status", "message", "expected"),
+    [
+        (401, "secret authentication failure", "authentication failed"),
+        (402, "secret balance failure", "credits exhausted"),
+        (404, "secret model not found", "model unavailable"),
+        (None, "secret connection refused", "connection failed"),
+    ],
+)
+def test_hosted_failure_messages_do_not_recommend_ollama_or_expose_secrets(status, message, expected):
+    class ProviderError(Exception):
+        status_code = status
+
+    fake, _ = client([ProviderError(message), ProviderError(message)])
+    provider = OpenAICompatibleProvider(fake, base_url="https://openrouter.ai/api/v1", api_key="secret", model="anthropic/claude-haiku-5.5", retries=0, sleep=lambda _: None)
+    with pytest.raises(RuntimeError, match=expected) as error:
+        provider.generate_quiz(request())
+    assert "Ollama" not in str(error.value)
+    assert "secret" not in str(error.value)

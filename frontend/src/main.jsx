@@ -27,7 +27,12 @@ const api = async (path, options = {}) => {
   });
   const body = response.status === 204 ? null : await response.json();
   if (!response.ok)
-    throw new Error(body?.error?.message || 'Something went wrong.');
+    throw Object.assign(
+      new Error(body?.error?.message || 'Something went wrong.'),
+      {
+        fields: body?.error?.fields || {},
+      },
+    );
   return body;
 };
 
@@ -44,21 +49,62 @@ function Auth({ onLogin }) {
     studentYear: 1,
   });
   const [error, setError] = useState('');
+  const [fields, setFields] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [challengeId, setChallengeId] = useState(null);
+  const [factor, setFactor] = useState('');
+  const [useRecovery, setUseRecovery] = useState(false);
+  const fieldProps = (key) => ({
+    'aria-invalid': Boolean(fields[key]),
+    'aria-describedby': fields[key] ? `auth-${key}-error` : undefined,
+  });
+  const fieldError = (key) =>
+    fields[key] && (
+      <small className="field-error" id={`auth-${key}-error`}>
+        {fields[key]}
+      </small>
+    );
   const submit = async (event) => {
     event.preventDefault();
+    if (busy) return;
     setError('');
+    setFields({});
+    if (mode === 'register' && form.password !== form.confirmPassword) {
+      setFields({ confirmPassword: 'Passwords do not match.' });
+      setError('Please correct the highlighted field.');
+      return;
+    }
+    setBusy(true);
     try {
-      const body = await api(`/auth/${mode}`, {
-        method: 'POST',
-        body: JSON.stringify(
-          mode === 'login'
-            ? { email: form.email, password: form.password }
-            : form,
-        ),
-      });
-      onLogin(body.user);
+      const body = await api(
+        challengeId ? '/auth/login/mfa' : `/auth/${mode}`,
+        {
+          method: 'POST',
+          body: JSON.stringify(
+            challengeId
+              ? {
+                  challengeId,
+                  [useRecovery ? 'recoveryCode' : 'code']: factor.trim(),
+                }
+              : mode === 'login'
+                ? { email: form.email, password: form.password }
+                : { ...form, lastName: form.lastName.trim() || null },
+          ),
+        },
+      );
+      if (body.mfaRequired) {
+        setChallengeId(body.challengeId);
+        setFactor('');
+      } else if (body.user) {
+        onLogin(body.user);
+      } else {
+        setError('Sign-in could not be completed. Please try again.');
+      }
     } catch (reason) {
       setError(reason.message);
+      setFields(reason.fields || {});
+    } finally {
+      setBusy(false);
     }
   };
   return (
@@ -91,137 +137,259 @@ function Auth({ onLogin }) {
       <form className="card auth-card" onSubmit={submit}>
         <span className="eyebrow">EDUQUEST</span>
         <h1>
-          {mode === 'login' ? 'Welcome back' : 'Create your student account'}
+          {challengeId
+            ? 'Verify your sign-in'
+            : mode === 'login'
+              ? 'Welcome back'
+              : 'Create your student account'}
         </h1>
         <p className="auth-description">
           {mode === 'login'
             ? 'Your learning journey, all in one place.'
             : 'A fresh start for your next big idea.'}
         </p>
-        {mode === 'register' && (
-          <label>
-            First name
-            <input
-              value={form.firstName}
-              onChange={(event) =>
-                setForm({ ...form, firstName: event.target.value })
-              }
-              required
-            />
-            {error && <small className="field-error">{error}</small>}
-          </label>
-        )}
-        {mode === 'register' && (
-          <label>
-            Last name (optional)
-            <input
-              value={form.lastName}
-              onChange={(event) =>
-                setForm({ ...form, lastName: event.target.value })
-              }
-            />
-          </label>
-        )}
-        <label>
-          Email
-          <input
-            type="email"
-            value={form.email}
-            onChange={(event) =>
-              setForm({ ...form, email: event.target.value })
-            }
-            required
-          />
-        </label>
-        <label>
-          Password
-          <input
-            type="password"
-            value={form.password}
-            onChange={(event) =>
-              setForm({ ...form, password: event.target.value })
-            }
-            required
-            minLength="10"
-          />
-        </label>
-        {mode === 'register' && (
+        {!challengeId && (
           <>
+            {mode === 'register' && (
+              <label>
+                First name
+                <input
+                  value={form.firstName}
+                  onChange={(event) =>
+                    setForm({ ...form, firstName: event.target.value })
+                  }
+                  required
+                  autoComplete="given-name"
+                  maxLength={50}
+                  {...fieldProps('firstName')}
+                />
+                {fieldError('firstName')}
+              </label>
+            )}
+            {mode === 'register' && (
+              <label>
+                Last name (optional)
+                <input
+                  value={form.lastName}
+                  autoComplete="family-name"
+                  maxLength={50}
+                  {...fieldProps('lastName')}
+                  onChange={(event) =>
+                    setForm({ ...form, lastName: event.target.value })
+                  }
+                />
+                {fieldError('lastName')}
+              </label>
+            )}
             <label>
-              Confirm password
+              Email
               <input
-                type="password"
-                value={form.confirmPassword}
+                type="email"
+                autoComplete="email"
+                maxLength={254}
+                {...fieldProps('email')}
+                value={form.email}
                 onChange={(event) =>
-                  setForm({ ...form, confirmPassword: event.target.value })
+                  setForm({ ...form, email: event.target.value })
                 }
                 required
               />
+              {fieldError('email')}
             </label>
             <label>
-              Student type
-              <select
-                value={form.studentType}
-                onChange={(event) =>
-                  setForm({ ...form, studentType: event.target.value })
+              Password
+              <input
+                type="password"
+                autoComplete={
+                  mode === 'login' ? 'current-password' : 'new-password'
                 }
-              >
-                <option value="it">IT</option>
-                <option value="business">Business</option>
-              </select>
-            </label>
-            <label>
-              Year of study
-              <select
-                value={form.studentYear}
+                {...fieldProps('password')}
+                value={form.password}
                 onChange={(event) =>
-                  setForm({ ...form, studentYear: Number(event.target.value) })
+                  setForm({ ...form, password: event.target.value })
                 }
-              >
-                <option value={1}>Year 1</option>
-                <option value={2}>Year 2</option>
-                <option value={3}>Year 3</option>
-              </select>
+                required
+                minLength={mode === 'register' ? 10 : undefined}
+                maxLength={200}
+              />
+              {fieldError('password')}
             </label>
-            <p className="muted">
-              Password strength:{' '}
-              {
-                [
-                  form.password.length >= 10,
-                  /[A-Z]/.test(form.password),
-                  /[a-z]/.test(form.password),
-                  /[0-9]/.test(form.password),
-                  /[^A-Za-z0-9]/.test(form.password),
-                ].filter(Boolean).length
-              }{' '}
-              of 5 rules met
-            </p>
-            <p className="muted">Registration creates a student account.</p>
+            {mode === 'register' && (
+              <>
+                <label>
+                  Confirm password
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    maxLength={200}
+                    {...fieldProps('confirmPassword')}
+                    value={form.confirmPassword}
+                    onChange={(event) =>
+                      setForm({ ...form, confirmPassword: event.target.value })
+                    }
+                    required
+                  />
+                  {fieldError('confirmPassword')}
+                </label>
+                <label>
+                  Student type
+                  <select
+                    value={form.studentType}
+                    onChange={(event) =>
+                      setForm({ ...form, studentType: event.target.value })
+                    }
+                  >
+                    <option value="it">IT</option>
+                    <option value="business">Business</option>
+                  </select>
+                </label>
+                <label>
+                  Year of study
+                  <select
+                    value={form.studentYear}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        studentYear: Number(event.target.value),
+                      })
+                    }
+                  >
+                    <option value={1}>Year 1</option>
+                    <option value={2}>Year 2</option>
+                    <option value={3}>Year 3</option>
+                  </select>
+                </label>
+                <p className="muted">
+                  Password strength:{' '}
+                  {
+                    [
+                      form.password.length >= 10,
+                      /[A-Z]/.test(form.password),
+                      /[a-z]/.test(form.password),
+                      /[0-9]/.test(form.password),
+                      /[^A-Za-z0-9]/.test(form.password),
+                    ].filter(Boolean).length
+                  }{' '}
+                  of 5 rules met
+                </p>
+                <p className="muted">Registration creates a student account.</p>
+                <p className="muted">
+                  Use at least 10 characters with uppercase and lowercase
+                  letters, a number and a special character. Avoid your name or
+                  email.
+                </p>
+              </>
+            )}
           </>
         )}
-        <button className="primary" type="submit">
-          {mode === 'login' ? 'Log in' : 'Register'}
+        {challengeId && (
+          <>
+            <label>
+              {useRecovery ? 'Recovery code' : 'Authenticator code'}
+              <input
+                value={factor}
+                onChange={(event) => setFactor(event.target.value)}
+                autoComplete="one-time-code"
+                inputMode={useRecovery ? 'text' : 'numeric'}
+                pattern={useRecovery ? undefined : '[0-9]{6}'}
+                required
+              />
+            </label>
+            <button
+              className="link-button"
+              type="button"
+              onClick={() => {
+                setUseRecovery(!useRecovery);
+                setFactor('');
+                setError('');
+              }}
+            >
+              {useRecovery ? 'Use authenticator code' : 'Use recovery code'}
+            </button>
+          </>
+        )}
+        <button className="primary" type="submit" disabled={busy}>
+          {busy
+            ? 'Please wait…'
+            : challengeId
+              ? 'Verify sign-in'
+              : mode === 'login'
+                ? 'Log in'
+                : 'Register'}
         </button>
         <button
           className="link-button"
           type="button"
           onClick={() => {
-            setMode(mode === 'login' ? 'register' : 'login');
+            setMode(
+              challengeId ? 'login' : mode === 'login' ? 'register' : 'login',
+            );
+            setChallengeId(null);
+            setFactor('');
+            setFields({});
             setError('');
           }}
         >
-          {mode === 'login' ? 'Create an account' : 'I already have an account'}
+          {challengeId
+            ? 'Back to login'
+            : mode === 'login'
+              ? 'Create an account'
+              : 'I already have an account'}
         </button>
-        {mode === 'login' && error && <p className="field-error">{error}</p>}
+        {error && (
+          <p className="field-error" role="alert">
+            {error}
+          </p>
+        )}
       </form>
     </main>
   );
 }
 
 // ── Application shell, role-based navigation, and screen routing ───────────
+function EmailVerification({ token, onContinue }) {
+  const [state, setState] = useState({ loading: true, error: '' });
+  useEffect(() => {
+    let active = true;
+    api(`/auth/verify-email?token=${encodeURIComponent(token)}`)
+      .then(() => active && setState({ loading: false, error: '' }))
+      .catch(
+        (reason) =>
+          active && setState({ loading: false, error: reason.message }),
+      );
+    return () => {
+      active = false;
+    };
+  }, [token]);
+  return (
+    <main className="center-state">
+      <section className="card">
+        <h1>Email verification</h1>
+        {state.loading ? (
+          <p role="status">Verifying your email…</p>
+        ) : (
+          <>
+            <p role={state.error ? 'alert' : 'status'}>
+              {state.error || 'Your email is verified.'}
+            </p>
+            <button className="primary" onClick={onContinue}>
+              Continue to EduQuest
+            </button>
+          </>
+        )}
+      </section>
+    </main>
+  );
+}
+
 export function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [verificationToken, setVerificationToken] = useState(() =>
+    window.location.pathname === '/verify-email'
+      ? new URLSearchParams(window.location.search).get('token') || ''
+      : null,
+  );
   const [screen, setScreen] = useState('Dashboard');
   const [quizId, setQuizId] = useState(null);
   const [gameQuizId, setGameQuizId] = useState(null);
@@ -239,6 +407,19 @@ export function App() {
   useEffect(() => {
     if (user?.role === 'admin' && screen === 'Dashboard') setScreen('Admin');
   }, [user, screen]);
+  if (verificationToken !== null)
+    return (
+      <EmailVerification
+        token={verificationToken}
+        onContinue={() => {
+          window.history.replaceState({}, '', '/');
+          setVerificationToken(null);
+          api('/auth/me')
+            .then((body) => setUser(body.user))
+            .catch(() => setUser(null));
+        }}
+      />
+    );
   if (loading)
     return <main className="center-state">Loading your workspace…</main>;
   if (!user) return <Auth onLogin={setUser} />;
@@ -495,7 +676,7 @@ function useData(path) {
 }
 function State({ state, empty = 'Nothing here yet.' }) {
   if (state.loading) return <p className="muted">Loading…</p>;
-  if (state.error) return <p className="field-error">{state.error}</p>;
+  if (state.error) return <p className="field-error" role="alert">{state.error}</p>;
   if (!state.data.length) return <p className="empty-state">{empty}</p>;
   return null;
 }
@@ -3478,7 +3659,7 @@ export function GamesPage({ user, onStartGame }) {
   const picker = useData(
     selectedKey
       ? `/games/quiz-picker?page=${page}&pageSize=20&search=${encodeURIComponent(search)}`
-      : '/games/quiz-picker?page=1&pageSize=20&search=',
+      : '',
   );
   const selected = catalogue.data.find((game) => game.key === selectedKey);
   const resumeFor = (key, quizId) =>
@@ -3524,6 +3705,8 @@ export function GamesPage({ user, onStartGame }) {
               </div>
               <button
                 className="secondary"
+                aria-label={`Choose ${game.display_name}`}
+                aria-pressed={selectedKey === game.key}
                 onClick={() => {
                   setSelectedKey(game.key);
                   setPage(1);
@@ -5168,7 +5351,15 @@ export function ProfilePage({ user, onUserChange }) {
   const [error, setError] = useState('');
   const [mfaMessage, setMfaMessage] = useState('');
   const [mfaFactor, setMfaFactor] = useState({ password: '', code: '' });
-  const dirty = form && JSON.stringify(form) !== JSON.stringify(data?.profile);
+  const [mfaSetup, setMfaSetup] = useState(null);
+  const [setupCode, setSetupCode] = useState('');
+  const dirty =
+    form &&
+    JSON.stringify(form) !==
+      JSON.stringify({
+        ...data?.profile,
+        preferredLanguages: data?.profile.preferred_languages || [],
+      });
   useEffect(() => {
     api('/me/profile')
       .then((body) => {
@@ -5190,7 +5381,14 @@ export function ProfilePage({ user, onUserChange }) {
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]);
-  if (!data || !form) return <p className="muted">Loading your profile…</p>;
+  if (!data || !form)
+    return error ? (
+      <p className="field-error" role="alert">
+        {error}
+      </p>
+    ) : (
+      <p className="muted">Loading your profile…</p>
+    );
   const update = (key, value) =>
     setForm((current) => ({ ...current, [key]: value }));
   const submitProfile = async (event) => {
@@ -5256,7 +5454,8 @@ export function ProfilePage({ user, onUserChange }) {
   const enrolMfa = async () => {
     try {
       const body = await api('/mfa/enrol', { method: 'POST', body: '{}' });
-      setMfaMessage(`Setup key: ${body.setupKey}`);
+      setError('');
+      setMfaSetup(body);
     } catch (reason) {
       setError(reason.message);
     }
@@ -5265,7 +5464,12 @@ export function ProfilePage({ user, onUserChange }) {
     try {
       const body = await api(path, {
         method: 'POST',
-        body: JSON.stringify(mfaFactor),
+        body: JSON.stringify({
+          password: mfaFactor.password,
+          ...(/^\d{6}$/.test(mfaFactor.code.trim())
+            ? { code: mfaFactor.code.trim() }
+            : { recoveryCode: mfaFactor.code.trim() }),
+        }),
       });
       setMfaMessage(
         body.recoveryCodes
@@ -5273,11 +5477,34 @@ export function ProfilePage({ user, onUserChange }) {
           : body.message || 'MFA updated.',
       );
       if (path === '/mfa/disable')
+      {
         setData((current) => ({
           ...current,
           profile: { ...current.profile, mfa_enabled: false },
         }));
+        setForm((current) => ({ ...current, mfa_enabled: false }));
+      }
       setMfaFactor({ password: '', code: '' });
+    } catch (reason) {
+      setError(reason.message);
+    }
+  };
+  const confirmMfa = async (event) => {
+    event.preventDefault();
+    setError('');
+    try {
+      const body = await api('/mfa/confirm', {
+        method: 'POST',
+        body: JSON.stringify({ code: setupCode }),
+      });
+      setMfaMessage(`Recovery codes: ${body.recoveryCodes.join(', ')}`);
+      setMfaSetup(null);
+      setSetupCode('');
+      setData((current) => ({
+        ...current,
+        profile: { ...current.profile, mfa_enabled: true },
+      }));
+      setForm((current) => ({ ...current, mfa_enabled: true }));
     } catch (reason) {
       setError(reason.message);
     }
@@ -5437,10 +5664,41 @@ export function ProfilePage({ user, onUserChange }) {
               : 'MFA is not enabled.'}
           </p>
           {mfaMessage && <p className="success">{mfaMessage}</p>}
-          {!data.profile.mfa_enabled && (
+          {!data.profile.mfa_enabled && !mfaSetup && (
             <button className="secondary" onClick={enrolMfa}>
               Enrol MFA
             </button>
+          )}
+          {mfaSetup && (
+            <form onSubmit={confirmMfa}>
+              <p>
+                Add EduQuest to your authenticator, then enter its six-digit
+                code.
+              </p>
+              <img
+                src={mfaSetup.qrCode}
+                alt="Scan to set up EduQuest in your authenticator"
+                width="180"
+                height="180"
+              />
+              <p>
+                Setup key: <code>{mfaSetup.setupKey}</code>
+              </p>
+              <label>
+                Setup authenticator code
+                <input
+                  value={setupCode}
+                  onChange={(event) => setSetupCode(event.target.value)}
+                  autoComplete="one-time-code"
+                  inputMode="numeric"
+                  pattern="[0-9]{6}"
+                  required
+                />
+              </label>
+              <button className="secondary" type="submit">
+                Confirm MFA
+              </button>
+            </form>
           )}
           {data.profile.mfa_enabled && (
             <>

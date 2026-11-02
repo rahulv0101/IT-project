@@ -370,11 +370,16 @@ class OpenAICompatibleProvider(OpenAIProvider):
         if len(collected) < request.question_count:
             logger.warning("AI provider could not produce the requested validated questions: %s; accepted=%d duplicates=%d unsupported=%d", type(last).__name__ if last else "insufficient-output", len(collected), rejected_duplicates, rejected_grounding)
             message = str(last or "") .lower()
+            status = getattr(last, "status_code", None)
+            if status in {401, 403}:
+                raise RuntimeError("AI provider authentication failed: check AI_API_KEY and model access") from None
+            if status == 402:
+                raise RuntimeError("AI provider credits exhausted: check your provider balance") from None
             if "connection" in message or "connect" in message:
-                raise RuntimeError("Ollama is not running: start Ollama and try again") from None
-            if "404" in message or "model" in message and "not found" in message:
-                raise RuntimeError(f"Model not downloaded: run: ollama pull {self.model}") from None
-            if "memory" in message or "out of memory" in message:
+                raise RuntimeError("Ollama is not running: start Ollama and try again" if self.is_local else "AI provider connection failed: check AI_BASE_URL and network access") from None
+            if status == 404 or "404" in message or "model" in message and "not found" in message:
+                raise RuntimeError(f"Model not downloaded: run: ollama pull {self.model}" if self.is_local else "AI model unavailable: check AI_MODEL and provider access") from None
+            if self.is_local and ("memory" in message or "out of memory" in message):
                 raise RuntimeError("Ollama ran out of memory: use a smaller model or close other applications") from None
             if isinstance(last, (TimeoutError, asyncio.TimeoutError)) or "timed out" in message or "timeout" in message:
                 raise RuntimeError("AI request timed out") from None

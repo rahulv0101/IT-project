@@ -78,12 +78,12 @@ const results = [
 ];
 
 const erd = await readFile('docs/report/ERD.md', 'utf8');
-const erdTables = [...erd.matchAll(/^  ([A-Z][A-Z0-9_]*) \{$/gm)]
+const erdTables = [...erd.matchAll(/^ {2}([A-Z][A-Z0-9_]*) \{$/gm)]
   .map((match) => match[1].toLowerCase())
   .sort();
 const erdRelationships = (
   erd.match(
-    /^  [A-Z][A-Z0-9_]* (?:\|\||\}o|\}\||o\|)--(?:\|\||\}o|\}\||o\|) [A-Z][A-Z0-9_]* :/gm,
+    /^ {2}[A-Z][A-Z0-9_]* (?:\|\||\}o|\}\||o\|)--(?:\|\||\}o|\}\||o\|) [A-Z][A-Z0-9_]* :/gm,
   ) || []
 ).length;
 const foreignKeyCount = before.constraints.filter(

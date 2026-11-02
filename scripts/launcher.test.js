@@ -5,69 +5,56 @@ import { describe, expect, it } from 'vitest';
 
 const root = process.cwd();
 const script = path.join(root, 'Start-EduQuest.ps1');
-const desktopBat = path.join(path.dirname(root), 'Run EduQuest.bat');
+const batch = path.join(root, 'Run EduQuest.bat');
 
 describe('EduQuest launcher', () => {
-  it('runs the batch dry run visibly and preserves its exit status', () => {
-    const output = execFileSync(
-      'cmd.exe',
-      ['/d', '/c', 'Run EduQuest.bat', '--dry-run'],
-      { cwd: root, encoding: 'utf8', input: '\n', timeout: 30000 },
-    );
-    expect(output).toContain(`Working directory: ${root}`);
-    for (const step of [
-      'db:start',
-      'db:migrate',
-      'seed',
-      'run-backend.ps1',
-      'run-ai-service.ps1',
-      'run-worker.ps1',
-      'run-frontend.ps1',
-    ]) {
-      expect(output).toContain(step);
+  it('resolves the batch launcher relative to its own checkout', () => {
+    const source = readFileSync(batch, 'utf8');
+    expect(source).toContain('set "ROOT=%~dp0"');
+    expect(source).not.toContain('C:\\Users\\User');
+    expect(source).toContain('exit /b %RC%');
+    if (process.platform === 'win32') {
+      const output = execFileSync('cmd.exe', ['/d', '/c', batch, '--dry-run'], {
+        cwd: root,
+        encoding: 'utf8',
+        input: '\n',
+        timeout: 30000,
+      });
+      expect(output).not.toContain('FAILED:');
     }
-    expect(output).not.toContain('FAILED:');
-    expect(output).not.toContain('Press Enter to close');
   });
 
-  it('targets an existing parseable PowerShell script', () => {
+  it('has a valid platform launcher and a parseable portable entrypoint', () => {
     expect(existsSync(script)).toBe(true);
-    const output = execFileSync(
-      'powershell.exe',
-      [
-        '-NoProfile',
-        '-Command',
-        `$tokens=$null;$errors=$null;[System.Management.Automation.Language.Parser]::ParseFile('${script.replaceAll("'", "''")}',[ref]$tokens,[ref]$errors)|Out-Null;if($errors.Count){$errors|% Message;exit 1}`,
-      ],
-      { encoding: 'utf8' },
-    );
-    expect(output).toBe('');
-    if (existsSync(desktopBat)) {
-      const bat = readFileSync(desktopBat, 'utf8');
-      expect(bat).toContain(`-File "%ROOT%\\Start-EduQuest.ps1"`);
-      expect(bat).toContain('-NoPause');
-      expect(bat).not.toContain('RUNLOG');
-      expect(bat).not.toContain('2>&1');
+    execFileSync(process.execPath, ['--check', 'scripts/start.mjs'], {
+      cwd: root,
+    });
+    if (process.platform === 'win32') {
+      execFileSync(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-Command',
+          `$tokens=$null;$errors=$null;[System.Management.Automation.Language.Parser]::ParseFile('${script.replaceAll("'", "''")}',[ref]$tokens,[ref]$errors)|Out-Null;if($errors.Count){exit 1}`,
+        ],
+        { encoding: 'utf8' },
+      );
     }
   });
 
-  it('dry-run lists every startup step and the project directory', () => {
+  it('dry-run lists startup steps without starting services or changing files', () => {
     const output = execFileSync(
-      'powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-DryRun'],
-      { encoding: 'utf8' },
+      process.execPath,
+      ['scripts/start.mjs', '--dry-run'],
+      {
+        cwd: root,
+        encoding: 'utf8',
+        timeout: 15000,
+      },
     );
     expect(output).toContain(`DRY RUN: project root = ${root}`);
-    for (const step of [
-      'db:start',
-      'db:migrate',
-      'seed',
-      'run-backend.ps1',
-      'run-ai-service.ps1',
-      'run-worker.ps1',
-      'run-frontend.ps1',
-    ])
-      expect(output).toContain(step);
+    for (const step of ['setup:token', 'db:start', 'db:migrate', 'seed', 'dev'])
+      expect(output).toContain(`Would run: npm run ${step}`);
   });
 
   it('quotes every child PowerShell script path so folders with spaces work', () => {

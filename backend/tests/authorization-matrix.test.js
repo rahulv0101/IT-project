@@ -1143,7 +1143,6 @@ async function assertRoute(route, [template, successRole]) {
   if (sessionRouteSpecs[route]) return assertSessionRoute(route, app, pool);
   if (messagingRouteSpecs[route]) return assertMessagingRoute(route, app, pool);
   const [method] = route.split(' ');
-  const verb = method.toLowerCase();
   const path = pathFor(template);
   const body = bodies[route]?.() ?? {};
   const isPublic = authorizationMatrix[route].auth === 'public';

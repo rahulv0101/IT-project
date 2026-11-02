@@ -7,10 +7,10 @@ if (!block) throw new Error('Mermaid ERD block not found');
 
 const entities = [];
 for (const match of block.matchAll(
-  /^  ([A-Z][A-Z0-9_]*) \{([\s\S]*?)^  \}/gm,
+  /^ {2}([A-Z][A-Z0-9_]*) \{([\s\S]*?)^ {2}\}/gm,
 )) {
   const fields = [
-    ...match[2].matchAll(/^    (\S+) (\S+)(?: "([^"]+)")?$/gm),
+    ...match[2].matchAll(/^ {4}(\S+) (\S+)(?: "([^"]+)")?$/gm),
   ].map((field) => ({
     type: field[1].replaceAll('_', ' '),
     name: field[2],
@@ -20,7 +20,7 @@ for (const match of block.matchAll(
 }
 const relations = [
   ...block.matchAll(
-    /^  ([A-Z][A-Z0-9_]*) (\|\||\}o|\}\||o\|)--(\|\||\}o|\}\||o\|) ([A-Z][A-Z0-9_]*) : "([^"]+)"$/gm,
+    /^ {2}([A-Z][A-Z0-9_]*) (\|\||\}o|\}\||o\|)--(\|\||\}o|\}\||o\|) ([A-Z][A-Z0-9_]*) : "([^"]+)"$/gm,
   ),
 ].map((match) => ({
   from: match[1],

@@ -1,2 +1,8 @@
 db/migrations/*.sql
 test-results/
+.venv/
+.pgdata/
+uploads/
+coverage/
+docs/dev-mail/
+docs/runtime-logs/

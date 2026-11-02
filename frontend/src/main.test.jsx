@@ -262,7 +262,9 @@ describe('Games chooser', () => {
     expect(
       await screen.findByRole('heading', { name: 'Choose a game' }),
     ).toBeTruthy();
-    expect(screen.getAllByRole('button', { name: 'Choose' })).toHaveLength(6);
+    expect(screen.getAllByRole('button', { name: /^Choose \S/ })).toHaveLength(
+      6,
+    );
     expect(screen.getByRole('button', { name: 'Coming soon' }).disabled).toBe(
       true,
     );
@@ -306,7 +308,7 @@ describe('Games chooser', () => {
     );
     render(<GamesPage user={{ role: 'student' }} onStartGame={onStartGame} />);
     await screen.findByRole('heading', { name: 'Choose a game' });
-    fireEvent.click(screen.getAllByRole('button', { name: 'Choose' })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: /^Choose \S/ })[0]);
     expect(
       await screen.findByRole('heading', { name: 'Choose a quiz' }),
     ).toBeTruthy();

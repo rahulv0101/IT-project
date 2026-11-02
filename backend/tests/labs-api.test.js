@@ -11,7 +11,7 @@ const { app } = await import('../src/app.js');
 const { pool } = await import('../db.js');
 
 describe('Practice Lab API', () => {
-  let lecturer, otherLecturer, student, outsider, moduleRow, otherModule, lab;
+  let lecturer, otherLecturer, student, _outsider, moduleRow, otherModule, lab;
   let lecturerAgent, studentAgent, outsiderAgent;
   const password = 'LabPassword9!';
 
@@ -37,7 +37,7 @@ describe('Practice Lab API', () => {
     ]);
     lecturer = users[0].rows[0].user_id;
     student = users[1].rows[0].user_id;
-    outsider = users[2].rows[0].user_id;
+    _outsider = users[2].rows[0].user_id;
     otherLecturer = users[3].rows[0].user_id;
     moduleRow = (
       await pool.query(

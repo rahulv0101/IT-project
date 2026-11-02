@@ -335,7 +335,7 @@ test('lecturer generation panel exposes mode metadata and stuck-job controls', a
   await expect(page.getByText(/AI service may be unreachable/)).toBeVisible();
   await page.getByRole('button', { name: 'Cancel' }).click();
   await expect(
-    page.getByText('Quiz generation failed. Please try again.', {
+    page.getByText('Quiz generation was cancelled.', {
       exact: true,
     }),
   ).toBeVisible();

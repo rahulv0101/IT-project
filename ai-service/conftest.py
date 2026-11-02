@@ -7,4 +7,5 @@ if os.environ.get("AI_REAL_TESTS") != "true":
     os.environ["AI_PROVIDER"] = "mock"
     for name in ("AI_BASE_URL", "AI_API_KEY", "AI_MODEL"):
         os.environ[name] = ""
-os.environ.setdefault("AI_SERVICE_TOKEN", "test-suite-token")
+if os.environ.get("AI_REAL_TESTS") != "true":
+    os.environ["AI_SERVICE_TOKEN"] = "test-suite-token"

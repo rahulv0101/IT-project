@@ -4,6 +4,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { extractResourceText } from '../scripts/extract-resource.js';
+import { resolvePython } from '../../scripts/python-runtime.mjs';
 
 let directory = '';
 beforeEach(async () => {
@@ -15,7 +16,7 @@ afterEach(async () => {
 
 it('extracts actual PDF text through the worker helper instead of placeholder material', async () => {
   const file = path.join(directory, 'lecture with spaces.pdf');
-  execFileSync('python', [
+  execFileSync(resolvePython(), [
     '-c',
     `
 import sys

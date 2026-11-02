@@ -105,7 +105,6 @@ export function GroupChat({ groupId, readOnly = false, canModerate = false }) {
       document.removeEventListener('visibilitychange', onVisibility);
     };
     // The group ID is the lifecycle boundary; the cursor is intentionally held in a ref/state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupId]);
   useEffect(() => {
     if (canModerate)

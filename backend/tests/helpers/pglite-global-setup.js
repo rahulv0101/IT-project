@@ -30,7 +30,8 @@ const pause = (milliseconds) =>
 
 async function waitForQuery(child) {
   let lastError;
-  for (let attempt = 1; attempt <= 60; attempt += 1) {
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
     if (child.exitCode !== null)
       throw new Error(`PGlite test server exited with code ${child.exitCode}`);
     const client = new Client({

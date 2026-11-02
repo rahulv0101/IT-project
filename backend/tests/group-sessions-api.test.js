@@ -13,11 +13,12 @@ describe('study session invariants', () => {
   beforeAll(async () => {
     f = await sessionFixture(pool);
   });
-  const call = (role, method, url, body) =>
-    request(app)
-      [method](url)
+  const call = (role, method, url, body) => {
+    const agent = request(app);
+    return agent[method](url)
       .set('Cookie', f[role].cookie)
       .send(body || {});
+  };
   const create = async (data = {}) => {
     const r = await call('leader', 'post', f.base, {
       ...validSession(),

@@ -3,6 +3,7 @@ import 'dotenv/config';
 import { spawn, spawnSync } from 'node:child_process';
 import { readFile, rm, unlink } from 'node:fs/promises';
 import pg from 'pg';
+import { resolvePython } from './python-runtime.mjs';
 
 const env = {
   ...process.env,
@@ -44,12 +45,36 @@ const db = spawn(
     windowsHide: true,
   },
 );
+const children = [];
+let stopping = false;
+const stop = (code = 0) => {
+  if (stopping) return;
+  stopping = true;
+  for (const child of children) child.kill('SIGTERM');
+  db.kill('SIGTERM');
+  void unlink(dbPidPath);
+  setTimeout(() => process.exit(code), 500);
+};
+process.once('SIGINT', () => stop());
+process.once('SIGTERM', () => stop());
+db.once('error', (error) => {
+  console.error(error.message);
+  stop(1);
+});
+db.once('exit', () => {
+  if (!stopping) stop(1);
+});
+
 const waitForDatabase = async () => {
   let lastError;
-  for (let i = 0; i < 100; i += 1) {
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    if (db.exitCode !== null)
+      throw new Error('E2E database process exited during startup');
     const client = new pg.Client({
       connectionString: dbUrl,
       connectionTimeoutMillis: 500,
+      query_timeout: 1000,
     });
     try {
       await client.connect();
@@ -82,65 +107,61 @@ const runSetup = (script) =>
     );
   });
 
-await waitForDatabase();
-await runSetup('backend/scripts/reset-test-db.js');
-await runSetup('backend/scripts/seed.js');
-const build = spawnSync(
-  process.execPath,
-  [
-    'node_modules/vite/bin/vite.js',
-    'build',
-    '--config',
-    'frontend/vite.config.js',
-  ],
-  { cwd: process.cwd(), env, stdio: 'inherit', windowsHide: true },
-);
-if (build.status !== 0)
-  throw new Error(`frontend production build failed with ${build.status}`);
-
-const commands = [
-  [process.execPath, ['backend/scripts/session-reminders.js']],
-  [process.execPath, ['backend/src/index.js']],
-  ['python', ['ai-service/run.py']],
-  [process.execPath, ['backend/scripts/ai-worker.js']],
-  [
+try {
+  await waitForDatabase();
+  await runSetup('backend/scripts/reset-test-db.js');
+  await runSetup('backend/scripts/seed.js');
+  const build = spawnSync(
     process.execPath,
     [
       'node_modules/vite/bin/vite.js',
-      'preview',
+      'build',
       '--config',
       'frontend/vite.config.js',
-      '--host',
-      '127.0.0.1',
-      '--port',
-      '5391',
     ],
-  ],
-];
-const children = commands.map(([command, args]) =>
-  spawn(command, args, {
-    cwd: process.cwd(),
-    env,
-    stdio: 'inherit',
-    windowsHide: true,
-  }),
-);
-let stopping = false;
-const stop = (code = 0) => {
-  if (stopping) return;
-  stopping = true;
-  for (const child of children) child.kill('SIGTERM');
-  db.kill('SIGTERM');
-  void unlink(dbPidPath);
-  setTimeout(() => process.exit(code), 500).unref();
-};
-for (const [index, child] of children.entries())
-  child.once('exit', (code, signal) => {
-    console.error(
-      `[e2e-stack] child ${commands[index][0]} ${commands[index][1][0]} exited code=${code} signal=${signal ?? 'none'}`,
-    );
-    if (!stopping && code !== 0) stop(code || 1);
-  });
-process.once('SIGINT', () => stop());
-process.once('SIGTERM', () => stop());
-setInterval(() => {}, 2 ** 31 - 1);
+    { cwd: process.cwd(), env, stdio: 'inherit', windowsHide: true },
+  );
+  if (build.status !== 0)
+    throw new Error(`frontend production build failed with ${build.status}`);
+
+  const commands = [
+    [process.execPath, ['backend/scripts/session-reminders.js']],
+    [process.execPath, ['backend/src/index.js']],
+    [resolvePython(), ['ai-service/run.py']],
+    [process.execPath, ['backend/scripts/ai-worker.js']],
+    [
+      process.execPath,
+      [
+        'node_modules/vite/bin/vite.js',
+        'preview',
+        '--config',
+        'frontend/vite.config.js',
+        '--host',
+        '127.0.0.1',
+        '--port',
+        '5391',
+      ],
+    ],
+  ];
+  children.push(
+    ...commands.map(([command, args]) =>
+      spawn(command, args, {
+        cwd: process.cwd(),
+        env,
+        stdio: 'inherit',
+        windowsHide: true,
+      }),
+    ),
+  );
+  for (const [index, child] of children.entries())
+    child.once('exit', (code, signal) => {
+      console.error(
+        `[e2e-stack] child ${commands[index][0]} ${commands[index][1][0]} exited code=${code} signal=${signal ?? 'none'}`,
+      );
+      if (!stopping && code !== 0) stop(code || 1);
+    });
+  setInterval(() => {}, 2 ** 31 - 1);
+} catch (error) {
+  console.error(error.message);
+  stop(1);
+}

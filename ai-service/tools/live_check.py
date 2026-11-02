@@ -1,4 +1,4 @@
-"""Bounded, in-process local AI verification. No server or port is used."""
+"""Bounded, in-process AI verification. No server or port is used."""
 import json
 import os
 import random
@@ -65,9 +65,9 @@ except Exception as exc:
     else:
         classification = "provider-or-response-format"
     print(f"result=failed:{classification}")
-    report = "# AI test report\n\nLocal live check failed before a verified generation.\n\n"
+    report = "# AI test report\n\nLive check failed before a verified generation.\n\n"
     report += f"- Provider: `{provider_name}`\n- Host: `{url.hostname or 'none'}`\n- Model: `{model or 'none'}`\n- Classification: `{classification}`\n- Elapsed seconds: `{elapsed:.2f}`\n"
-    report += "\nNo secret values were recorded. Start Ollama and ensure the configured model is installed, then rerun this checker.\n"
+    report += "\nNo secret values were recorded. Check the configured provider endpoint, credentials, model access and account balance before retrying.\n"
     write_report(ROOT / "docs" / "AI_TEST_REPORT.md", report)
     raise SystemExit(1)
 
@@ -87,7 +87,7 @@ for fixture_name, question in all_questions[:15]:
     review.append(f"- Question: {question.question_text}\n- Topic: {question.topic}\n- Level: {question.difficulty_level}\n- Options: {json.dumps([o.option_text for o in question.options])}\n- Marked answer: {next(o.option_text for o in question.options if o.is_correct)}\n- Explanation: {question.explanation}\n")
 write_report(ROOT / "ai-service" / "tests" / "quality" / "review.md", "\n".join(review))
 
-report = "# AI test report\n\nLocal live generation completed through the strict provider pipeline.\n\n"
+report = "# AI test report\n\nLive generation completed through the strict provider pipeline.\n\n"
 report += f"- Provider: `{provider_name}`\n- Host: `{url.hostname or 'none'}`\n- Model: `{model}`\n"
 report += f"- Valid questions: `{len(result.questions)}`\n- Elapsed seconds: `{elapsed:.2f}`\n"
 report += "- Strict schema validation: `PASS`\n- Groundedness filter: `PASS for accepted questions`\n"

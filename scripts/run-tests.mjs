@@ -1,5 +1,6 @@
 // @ts-nocheck - command runner is a small cross-platform runtime script.
 import { spawn } from 'node:child_process';
+import { createServer } from 'node:net';
 
 function run(command, args) {
   return new Promise((resolve, reject) => {
@@ -30,6 +31,19 @@ try {
     '--config',
     'vitest.unit.config.js',
   ]);
+  // Independent checkouts/test runs must not reset each other's database.
+  if (!process.env.PGLITE_SUITE_PORT) {
+    const server = createServer();
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    const address = server.address();
+    if (!address || typeof address === 'string')
+      throw new Error('No free test database port');
+    process.env.PGLITE_SUITE_PORT = String(address.port);
+    await new Promise((resolve) => server.close(resolve));
+  }
   await run(process.execPath, [
     vitest,
     'run',
