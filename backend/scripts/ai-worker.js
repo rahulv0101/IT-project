@@ -1,6 +1,6 @@
 // @ts-nocheck
 import 'dotenv/config';
-import { readFile } from 'node:fs/promises';
+import { extractResourceText } from './extract-resource.js';
 import { fileURLToPath } from 'node:url';
 import { pool } from '../db.js';
 import { containsProfanity } from '../src/profanity/index.js';
@@ -70,13 +70,6 @@ export const validateAiOutput = (output) => {
   });
 };
 
-const extractText = async (resource) => {
-  const extension = resource.resource_type.toLowerCase();
-  if (extension !== 'txt' && extension !== 'md')
-    return 'Uploaded educational material.';
-  return readFile(resource.file_location, 'utf8');
-};
-
 const claimJob = async () => {
   await pool.query(
     `UPDATE ai_generation_jobs
@@ -120,7 +113,7 @@ const processJob = async (job) => {
         'x-ai-service-token': aiServiceToken,
       },
       body: JSON.stringify({
-        extracted_text: await extractText(job),
+        extracted_text: await extractResourceText(job),
         question_count: job.question_count,
         difficulty: job.difficulty,
       }),
