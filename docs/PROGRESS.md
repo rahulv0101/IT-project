@@ -300,3 +300,17 @@ does not prove that crash resolved. Live five-question PDF generation still
 times out (HTTP 504); no draft was saved. Further repeated live and native-crash
 retries were stopped. Remaining work is diagnosed honestly in
 `docs/AI_PDF_DIAGNOSIS.md`; FR generation is not declared complete.
+
+# Eight-question AI follow-up — 2026-11-02
+
+Bounded local batches, smaller moving source context, explicit rejection feedback,
+separate instruction/source messages and safe rejection counts are implemented.
+Python regression suite: 55/55, zero skipped. Three live attempts failed (327,
+306 and 143 seconds); no eight-question draft was saved. The remaining blocker
+is real-model validity and diversity, not a missing worker. Do not mark complete
+or repeat live requests without a new plan. See AI_TEST_REPORT.md.
+
+Final offline gate: 138 unit, 90 frontend component, 328 database/API and 55 Python
+tests passed, zero skipped; lint, format and type-check passed. Browser tests were
+not rerun for this provider-only change. The AI service and worker were restarted
+with the local settings; the failed diagnostic job will not automatically retry.

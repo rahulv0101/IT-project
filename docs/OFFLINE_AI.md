@@ -46,6 +46,30 @@ The checker makes one small request first and does not use a server port.
 
 ## Troubleshooting
 
+### Small-PC generation settings
+
+For the installed 1B local model on this 8 GB PC, generation is configured as
+one question per batch (`AI_BATCH_SIZE=1`) with a 1,200-token request cap
+(`AI_MAX_TOKENS`). Eight questions are merged and validated before saving a draft;
+an incomplete or invalid result is never presented as a finished quiz.
+
+The bounded budgets must agree: `AI_TIMEOUT_SECONDS=600` for the whole generation,
+`AI_REQUEST_TIMEOUT_SECONDS=630` for the HTTP service, and
+`AI_WORKER_TIMEOUT_MS=660000` for the backend worker. This leaves time for a small
+CPU-only model while remaining below the worker's 15-minute stale-job limit.
+These are local configuration choices, not promises of completion time. Restart
+the AI service and worker after changing them. Do not run heavy test suites at
+the same time as local generation on a memory-constrained PC.
+
+Local batches use a 2,400-character window within the source supplied by the
+worker. The window moves forward on each request, including after rejection. Grounding is still
+checked against the source, duplicates are still rejected, and a rejected batch
+gets explicit grounding or duplication feedback rather than the same prompt
+again. A lecturer must review coverage and correctness before publishing.
+Local requests separate instructions and source text into system and user
+messages, and use temperature 0.3 rather than repeating greedy output. Hosted
+provider prompts and temperature are unchanged.
+
 - “Ollama is not running”: start the Ollama desktop application.
 - “Model not downloaded”: run `ollama pull <model>`.
 - Timeout or out-of-memory: choose a smaller model, close other applications,

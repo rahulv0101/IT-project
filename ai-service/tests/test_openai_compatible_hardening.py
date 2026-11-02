@@ -67,6 +67,32 @@ def test_local_timeout_defaults_to_300_seconds(monkeypatch):
     assert provider.timeout_seconds == 300
 
 
+def test_configured_local_budget_generates_eight_distinct_validated_single_question_batches(monkeypatch):
+    monkeypatch.setenv("AI_BATCH_SIZE", "1")
+    monkeypatch.setenv("AI_TIMEOUT_SECONDS", "600")
+    monkeypatch.setenv("AI_MAX_TOKENS", "1200")
+    prompts = [
+        "Why would an index help a lookup?",
+        "How does normalization reduce duplication?",
+        "What makes a primary key useful?",
+        "When does a foreign key protect a relationship?",
+        "Which operation retrieves table records?",
+        "How can a transaction keep changes consistent?",
+        "Why should related tables be joined?",
+        "What is the purpose of a database constraint?",
+    ]
+    fake, calls = client([payload(text) for text in prompts])
+    provider = OpenAICompatibleProvider(fake, base_url="http://127.0.0.1:11434/v1/", api_key="test-only", model="m", max_requests=8, retries=0, sleep=lambda _: None)
+    result = provider.generate_quiz(request(count=8))
+    assert [question.question_text for question in result.questions] == prompts
+    assert len(calls.calls) == 8
+    for call in calls.calls:
+        assert call["max_tokens"] == 1200
+        assert 0 < call["timeout"] <= 600
+        assert call["response_format"]["json_schema"]["schema"]["properties"]["questions"]["maxItems"] == 1
+    assert all(provider._grounded(question, request().extracted_text) for question in result.questions)
+
+
 def test_actual_request_has_remaining_deadline_and_difficulty_instruction():
     fake, calls = client([payload()])
     provider = OpenAICompatibleProvider(fake, base_url="http://localhost:11434/v1/", api_key="k", model="m", sleep=lambda _: None)
@@ -86,6 +112,39 @@ def test_json_fallback_cannot_bypass_request_cap():
     with pytest.raises(RuntimeError):
         provider.generate_quiz(request())
     assert len(calls.calls) == 1
+
+
+def test_local_source_window_moves_without_inventing_source_text():
+    source = "BEGINNING " + "database concept " * 500 + " ENDING"
+    fake, calls = client([payload(), payload()])
+    provider = OpenAICompatibleProvider(fake, base_url="http://localhost:11434/v1/", api_key="test-only", model="m")
+    req = QuizRequest(extracted_text=source, question_count=8, difficulty="mixed")
+    provider._request_batch(req, 1, "m")
+    provider._request_batch(req, 1, "m", avoid_questions=["accepted"] * 7)
+    first = calls.calls[0]["messages"][1]["content"]
+    last = calls.calls[1]["messages"][1]["content"]
+    assert source[:2400] in first
+    assert source[-2400:] in last
+    assert "BEGINNING" in first and "ENDING" not in first
+    assert "ENDING" in last and "BEGINNING" not in last
+    assert source not in first and source not in last
+
+
+def test_local_rejected_batch_moves_source_window_and_separates_untrusted_text():
+    source = "database facts " * 600
+    fake, calls = client([payload(), payload()])
+    provider = OpenAICompatibleProvider(fake, base_url="http://localhost:11434/v1/", api_key="test-only", model="m")
+    req = QuizRequest(extracted_text="START " + source + " END", question_count=8, difficulty="mixed")
+    provider.requests = 1
+    provider._request_batch(req, 1, "m")
+    provider.requests = 2
+    provider._request_batch(req, 1, "m")
+    assert calls.calls[0]["messages"][0]["role"] == "system"
+    assert "START" not in calls.calls[0]["messages"][0]["content"]
+    assert calls.calls[0]["messages"][1]["role"] == "user"
+    assert "START" in calls.calls[0]["messages"][1]["content"]
+    assert "START" not in calls.calls[1]["messages"][1]["content"]
+    assert calls.calls[0]["temperature"] == 0.3
 
 
 def test_timeout_uses_model_fallback():
@@ -115,6 +174,17 @@ def test_groundedness_drops_unsupported_question():
     provider = OpenAICompatibleProvider(fake, base_url="https://example.test/openai/", api_key="k", model="m", retries=0, sleep=lambda _: None, max_requests=2)
     result = provider.generate_quiz(request())
     assert result.questions[0].question_text == "Database indexing speeds up lookups"
+
+
+def test_grounding_rejection_is_explained_on_the_next_request():
+    unsupported = payload("What happens in a vacuum?").replace("Database indexing", "Quantum teleportation")
+    fake, calls = client([unsupported, payload()])
+    provider = OpenAICompatibleProvider(fake, base_url="http://localhost:11434/v1/", api_key="test-only", model="m", retries=0, sleep=lambda _: None, max_requests=2)
+    result = provider.generate_quiz(request())
+    assert len(result.questions) == 1
+    assert "not supported by the source" in calls.calls[1]["messages"][0]["content"]
+    assert "short exact phrase" in calls.calls[1]["messages"][0]["content"]
+    assert provider._grounded(result.questions[0], request().extracted_text)
 
 
 def test_429_retry_after_is_respected():

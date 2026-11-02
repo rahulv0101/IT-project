@@ -167,3 +167,19 @@
 - Announcements are pinned automatically for leaders, with a maximum of three active pinned announcements. A leader may remove any message; ordinary members may remove only their own.
 - Message notifications are generated for announcements, replies, and explicit `@Full Name` mentions. Ordinary messages without a mention do not notify every group member.
 - Existing resources are attached by reference after a server scope check. Small uploads reuse the upload directory outside the web root, use randomized stored names, and are served only through the membership-authorized attachment route.
+
+# Local eight-question generation follow-up — 2026-11-02
+
+On the existing 8 GB PC, use one-question local batches with a 1,200-token cap
+and coordinated 600/630/660-second provider/service/worker budgets, configured
+locally and documented in OFFLINE_AI.md. Do not silently switch to MockProvider.
+Local requests separate instructions from source text, use temperature 0.3 and
+move a bounded source window on every request, including rejected batches.
+Grounding and duplicate rejection remain mandatory. Rejections carry feedback
+into subsequent requests and only aggregate counts are logged.
+
+Three live eight-question attempts failed; no complete quiz was persisted.
+The 1B model repeated a question 19 times in one attempt and produced invalid
+output in the last attempt. These changes are not proof of reliable generation.
+Further live retries stopped; a more capable model must be evaluated before
+claiming this requirement done. No paid API was used for these attempts.

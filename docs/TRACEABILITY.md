@@ -291,3 +291,13 @@ Live results and coverage limitations are recorded in `docs/AI_PDF_DIAGNOSIS.md`
 | Authorized resource/file attachments                                    | automated | `db/migrations/026_group_messaging.sql`, `backend/src/groups/messaging.js`, API tests                |
 | Mention, announcement and reply notifications                           | automated | `db/migrations/026_group_messaging.sql`, messaging API tests                                         |
 | Responsive chat tab and real two-user announcement flow                 | automated | `frontend/src/group-chat.test.jsx`, `frontend/e2e/study-sessions.spec.js`                            |
+
+# Eight-question local AI follow-up (2026-11-02)
+
+`ai-service/tests/test_openai_compatible_hardening.py` independently covers eight
+validated single-question batches, configured budgets, source-window movement
+after rejection, separation of untrusted source text and grounding retry feedback.
+Python: 55 passed, zero skipped. INV-11 is retained: invalid or incomplete output
+is not persisted. Live evidence in `AI_TEST_REPORT.md` is **not verified for reliable
+eight-question generation**: three attempts failed; no quiz saved. Mock browser
+evidence must not be substituted for this outstanding real-model requirement.

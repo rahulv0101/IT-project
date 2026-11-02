@@ -1,5 +1,34 @@
 # AI test report
 
+## Eight-question follow-up — 2026-11-02
+
+Verdict: **eight-question generation is not reliable on the configured local
+llama3.2:1b model**. Three bounded end-to-end attempts produced zero saved quizzes.
+No validation was weakened; the diagnostic job is failed, not queued for more retries.
+
+| Attempt                                                             | Elapsed seconds | Outcome                                                |
+| ------------------------------------------------------------------- | --------------: | ------------------------------------------------------ |
+| One-question batches, larger coordinated deadlines                  |             327 | No complete validated result; no quiz saved            |
+| Grounding/duplicate feedback and smaller source windows             |             306 | One accepted question, 19 duplicates; HTTP 502         |
+| Separate instructions/source, advancing windows and temperature 0.3 |             143 | One accepted question, then malformed output; HTTP 502 |
+
+The real lecturer API accepted the request for eight questions and the worker
+processed the existing PDF. Source extraction and job claiming are working;
+the model output is the remaining blocker. Single-question checks passed, but
+they do not establish eight-question reliability. Tokens were not measured.
+
+Changes retain source grounding and duplicate checks, carry rejection feedback
+forward, prevent a rejected batch from fixing the source window in one place,
+and record aggregate rejection counts without text or secrets. Configuration
+is documented in OFFLINE_AI.md. The Python suite passed 55/55 with zero skipped.
+No new browser run was needed for these provider-only changes. Further live
+retries stopped after the third unsuccessful attempt.
+
+Final offline gate: lint, format and type-check passed; combined JavaScript run
+passed 228 unit/component tests plus 328 database/API tests, zero skipped. Python
+passed 55 tests, zero skipped. This run did not reproduce the earlier native DB
+startup crash, but does not establish that intermittent issue permanently fixed.
+
 ## Latest verification — 2026-11-02
 
 Verdict: **not working reliably for the lecturer's five-question PDF request**.
