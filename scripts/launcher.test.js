@@ -8,6 +8,28 @@ const script = path.join(root, 'Start-EduQuest.ps1');
 const desktopBat = path.join(path.dirname(root), 'Run EduQuest.bat');
 
 describe('EduQuest launcher', () => {
+  it('runs the batch dry run visibly and preserves its exit status', () => {
+    const output = execFileSync(
+      'cmd.exe',
+      ['/d', '/c', 'Run EduQuest.bat', '--dry-run'],
+      { cwd: root, encoding: 'utf8', input: '\n', timeout: 30000 },
+    );
+    expect(output).toContain(`Working directory: ${root}`);
+    for (const step of [
+      'db:start',
+      'db:migrate',
+      'seed',
+      'run-backend.ps1',
+      'run-ai-service.ps1',
+      'run-worker.ps1',
+      'run-frontend.ps1',
+    ]) {
+      expect(output).toContain(step);
+    }
+    expect(output).not.toContain('FAILED:');
+    expect(output).not.toContain('Press Enter to close');
+  });
+
   it('targets an existing parseable PowerShell script', () => {
     expect(existsSync(script)).toBe(true);
     const output = execFileSync(
