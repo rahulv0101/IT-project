@@ -36,6 +36,22 @@ const api = async (path, options = {}) => {
   return body;
 };
 
+function PasswordInput({ show, onToggle, label, ...props }) {
+  return (
+    <span className="password-input-wrap">
+      <input type={show ? 'text' : 'password'} {...props} />
+      <button
+        type="button"
+        className="password-toggle"
+        onClick={onToggle}
+        aria-label={`${show ? 'Hide' : 'Show'} ${label}`}
+      >
+        {show ? 'Hide' : 'Show'}
+      </button>
+    </span>
+  );
+}
+
 // ── Registration and login ─────────────────────────────────────────────────
 function Auth({ onLogin }) {
   const [mode, setMode] = useState('login');
@@ -51,6 +67,15 @@ function Auth({ onLogin }) {
   const [error, setError] = useState('');
   const [fields, setFields] = useState({});
   const [busy, setBusy] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmation, setShowConfirmation] = useState(false);
+  const passwordRules = [
+    ['At least 10 characters', form.password.length >= 10],
+    ['An uppercase letter', /[A-Z]/.test(form.password)],
+    ['A lowercase letter', /[a-z]/.test(form.password)],
+    ['A number', /[0-9]/.test(form.password)],
+    ['A special character', /[^A-Za-z0-9]/.test(form.password)],
+  ];
   const [challengeId, setChallengeId] = useState(null);
   const [factor, setFactor] = useState('');
   const [useRecovery, setUseRecovery] = useState(false);
@@ -194,10 +219,13 @@ function Auth({ onLogin }) {
               />
               {fieldError('email')}
             </label>
-            <label>
-              Password
-              <input
-                type="password"
+            <div className="field-group">
+              <label htmlFor="auth-password">Password</label>
+              <PasswordInput
+                id="auth-password"
+                label="password"
+                show={showPassword}
+                onToggle={() => setShowPassword(!showPassword)}
                 autoComplete={
                   mode === 'login' ? 'current-password' : 'new-password'
                 }
@@ -211,13 +239,18 @@ function Auth({ onLogin }) {
                 maxLength={200}
               />
               {fieldError('password')}
-            </label>
+            </div>
             {mode === 'register' && (
               <>
-                <label>
-                  Confirm password
-                  <input
-                    type="password"
+                <div className="field-group">
+                  <label htmlFor="auth-confirm-password">
+                    Confirm password
+                  </label>
+                  <PasswordInput
+                    id="auth-confirm-password"
+                    label="confirmation password"
+                    show={showConfirmation}
+                    onToggle={() => setShowConfirmation(!showConfirmation)}
                     autoComplete="new-password"
                     maxLength={200}
                     {...fieldProps('confirmPassword')}
@@ -228,7 +261,7 @@ function Auth({ onLogin }) {
                     required
                   />
                   {fieldError('confirmPassword')}
-                </label>
+                </div>
                 <label>
                   Student type
                   <select
@@ -259,17 +292,19 @@ function Auth({ onLogin }) {
                 </label>
                 <p className="muted">
                   Password strength:{' '}
-                  {
-                    [
-                      form.password.length >= 10,
-                      /[A-Z]/.test(form.password),
-                      /[a-z]/.test(form.password),
-                      /[0-9]/.test(form.password),
-                      /[^A-Za-z0-9]/.test(form.password),
-                    ].filter(Boolean).length
-                  }{' '}
-                  of 5 rules met
+                  {passwordRules.filter(([, met]) => met).length} of 5 rules met
                 </p>
+                <ul
+                  className="password-rules"
+                  aria-label="Password requirements"
+                >
+                  {passwordRules.map(([label, met]) => (
+                    <li key={label} className={met ? 'met' : 'unmet'}>
+                      <span aria-hidden="true">{met ? '✓' : '○'} </span>
+                      {label} — {met ? 'met' : 'unmet'}
+                    </li>
+                  ))}
+                </ul>
                 <p className="muted">Registration creates a student account.</p>
                 <p className="muted">
                   Use at least 10 characters with uppercase and lowercase
@@ -5393,6 +5428,7 @@ export function ProfilePage({ user, onUserChange }) {
   const [email, setEmail] = useState({ password: '', email: '' });
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [resending, setResending] = useState(false);
   const [mfaMessage, setMfaMessage] = useState('');
   const [mfaFactor, setMfaFactor] = useState({ password: '', code: '' });
   const [mfaSetup, setMfaSetup] = useState(null);
@@ -5489,10 +5525,30 @@ export function ProfilePage({ user, onUserChange }) {
         method: 'POST',
         body: JSON.stringify(email),
       });
+      const pendingEmail = email.email.trim().toLowerCase();
+      setData((previous) => ({
+        ...previous,
+        profile: { ...previous.profile, pending_email: pendingEmail },
+      }));
+      setForm((previous) => ({ ...previous, pending_email: pendingEmail }));
       setMessage(body.message);
       setEmail({ password: '', email: '' });
     } catch (reason) {
       setError(reason.message);
+    }
+  };
+  const resendVerification = async () => {
+    if (resending) return;
+    setResending(true);
+    setError('');
+    setMessage('');
+    try {
+      await api('/auth/resend-verification', { method: 'POST', body: '{}' });
+      setMessage('Check your email for a new verification link.');
+    } catch (reason) {
+      setError(reason.message);
+    } finally {
+      setResending(false);
     }
   };
   const enrolMfa = async () => {
@@ -5631,6 +5687,23 @@ export function ProfilePage({ user, onUserChange }) {
       <div className="profile-stack">
         <form className="card" onSubmit={submitEmail}>
           <h2>Change email</h2>
+          {(!data.profile.email_verified_at || data.profile.pending_email) && (
+            <div>
+              <p className="muted">
+                {data.profile.pending_email
+                  ? `Verification is pending for ${data.profile.pending_email}.`
+                  : 'Your email address still needs verification.'}
+              </p>
+              <button
+                type="button"
+                className="secondary"
+                disabled={resending}
+                onClick={resendVerification}
+              >
+                {resending ? 'Sending…' : 'Resend verification email'}
+              </button>
+            </div>
+          )}
           <p className="muted">
             Your current email stays active until the new address is verified.
           </p>

@@ -1,5 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
+process.env.EMAIL_DELIVERY = 'development-file';
+
 export default defineConfig({
   test: {
     fileParallelism: false,

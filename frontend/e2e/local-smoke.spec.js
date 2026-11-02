@@ -16,7 +16,7 @@ test('seeded lecturer logs in, generates a quiz and publishes it', async ({
 }) => {
   await page.goto('/');
   await page.getByLabel('Email').fill('demo-lecturer@example.com');
-  await page.getByLabel('Password').fill('EduQuestDemo123!');
+  await page.getByLabel('Password', { exact: true }).fill('EduQuestDemo123!');
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Log out' })).toBeVisible();
   await page.reload();
@@ -57,7 +57,7 @@ test('whole-quiz editor publishes all question types and enforces the student at
   const title = `Whole quiz ${Date.now()}`;
   await page.goto('/');
   await page.getByLabel('Email').fill('demo-lecturer@example.com');
-  await page.getByLabel('Password').fill('EduQuestDemo123!');
+  await page.getByLabel('Password', { exact: true }).fill('EduQuestDemo123!');
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
   await page.getByRole('button', { name: 'Quizzes', exact: true }).click();
   await page.getByRole('button', { name: 'Create quiz' }).click();
@@ -172,7 +172,7 @@ test('whole-quiz editor publishes all question types and enforces the student at
 
   await page.getByRole('button', { name: 'Log out' }).click();
   await page.getByLabel('Email').fill('demo-student-1@example.com');
-  await page.getByLabel('Password').fill('EduQuestDemo123!');
+  await page.getByLabel('Password', { exact: true }).fill('EduQuestDemo123!');
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Log out' })).toBeVisible();
   const authoringStatus = await page.evaluate(async (path) => {
@@ -236,7 +236,7 @@ test('whole-quiz editor blocks publishing an incomplete question', async ({
 }) => {
   await page.goto('/');
   await page.getByLabel('Email').fill('demo-lecturer@example.com');
-  await page.getByLabel('Password').fill('EduQuestDemo123!');
+  await page.getByLabel('Password', { exact: true }).fill('EduQuestDemo123!');
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
   await page.getByRole('button', { name: 'Quizzes', exact: true }).click();
   await page.getByRole('button', { name: 'Create quiz' }).click();
@@ -267,7 +267,7 @@ test('profile page edits identity and languages with an accessible layout', asyn
 }) => {
   await page.goto('/');
   await page.getByLabel('Email').fill('demo-lecturer@example.com');
-  await page.getByLabel('Password').fill('EduQuestDemo123!');
+  await page.getByLabel('Password', { exact: true }).fill('EduQuestDemo123!');
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
   await page.getByRole('button', { name: 'Edit profile', exact: true }).click();
   await expect(

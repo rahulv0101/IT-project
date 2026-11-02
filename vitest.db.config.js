@@ -1,5 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
+process.env.EMAIL_DELIVERY = 'development-file';
+
 const suitePort = Number(process.env.PGLITE_SUITE_PORT ?? 55433);
 const suiteUrl = `postgres://postgres:postgres@127.0.0.1:${suitePort}/eduquest_test?sslmode=disable`;
 process.env.TEST_DATABASE_URL = suiteUrl;

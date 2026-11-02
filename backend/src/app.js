@@ -9,7 +9,7 @@
 import 'dotenv/config';
 import crypto from 'node:crypto';
 import path from 'node:path';
-import { access, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, unlink } from 'node:fs/promises';
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
@@ -19,6 +19,7 @@ import rateLimit from 'express-rate-limit';
 import multer from 'multer';
 import QRCode from 'qrcode';
 import { z } from 'zod';
+import { sendVerificationEmail } from './email.js';
 import {
   emailSchema,
   normalizePersonName,
@@ -112,7 +113,14 @@ const authLimiter = rateLimit({
     },
   },
 });
-app.use(['/api/v1/auth/login', '/api/v1/auth/register'], authLimiter);
+app.use(
+  [
+    '/api/v1/auth/login',
+    '/api/v1/auth/register',
+    '/api/v1/auth/resend-verification',
+  ],
+  authLimiter,
+);
 
 // This endpoint exists only for the isolated browser-test process. It resets
 // the in-memory limiter between independent browser tests; production never
@@ -431,13 +439,7 @@ const issueVerificationMail = async (userId, email, targetEmail = null) => {
     `INSERT INTO email_verification_tokens(user_id,token_hash,target_email,expires_at) VALUES($1,$2,$3,now()+interval '24 hours')`,
     [userId, sessionHash(token), targetEmail],
   );
-  const mailDir = path.resolve('docs/dev-mail');
-  await mkdir(mailDir, { recursive: true });
-  await writeFile(
-    path.join(mailDir, `${userId}.txt`),
-    `To: ${email}\nVerify your EduQuest email: http://localhost:5173/verify-email?token=${token}\n`,
-    'utf8',
-  );
+  await sendVerificationEmail({ userId, email, token });
 };
 
 const nameSchema = z
@@ -590,10 +592,25 @@ app.post('/api/v1/auth/register', async (req, res, next) => {
         data.studentYear || 1,
       ],
     );
-    await issueVerificationMail(result.rows[0].user_id, data.email);
+    let verificationDelivery = 'sent';
+    try {
+      await issueVerificationMail(result.rows[0].user_id, data.email);
+    } catch (mailError) {
+      verificationDelivery = 'unavailable';
+      console.error(
+        JSON.stringify({
+          code: 'VERIFICATION_DELIVERY_FAILED',
+          errorType: mailError.name,
+        }),
+      );
+    }
     await issueSession(result.rows[0].user_id, res);
     res.status(201).json({
-      user: { ...result.rows[0], needs_email_verification: true },
+      user: {
+        ...result.rows[0],
+        needs_email_verification: true,
+        verification_delivery: verificationDelivery,
+      },
     });
   } catch (e) {
     if (e.code === '23505')
@@ -607,6 +624,42 @@ app.post('/api/v1/auth/register', async (req, res, next) => {
     next(e);
   }
 });
+app.post(
+  '/api/v1/auth/resend-verification',
+  requireAuth,
+  async (req, res, next) => {
+    try {
+      if (!parse(z.object({}).strict(), req.body || {}, req, res)) return;
+      const user = (
+        await pool.query(
+          'SELECT email,email_verified_at,pending_email FROM users WHERE user_id=$1',
+          [req.user.userId],
+        )
+      ).rows[0];
+      if (user.email_verified_at && !user.pending_email)
+        return res.json({ sent: true });
+      try {
+        await issueVerificationMail(
+          req.user.userId,
+          user.pending_email || user.email,
+          user.pending_email || null,
+        );
+      } catch {
+        return error(
+          res,
+          503,
+          'EMAIL_UNAVAILABLE',
+          'Verification email could not be sent. Please try again later.',
+          requestId(req),
+        );
+      }
+      res.json({ sent: true });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
 app.get('/api/v1/auth/verify-email', async (req, res, next) => {
   try {
     const data = parse(

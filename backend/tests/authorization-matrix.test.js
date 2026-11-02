@@ -131,6 +131,7 @@ function sendWithCookie(method, path, cookie, body) {
 }
 
 const bodies = {
+  'POST /api/v1/auth/resend-verification': () => ({}),
   'POST /api/v1/auth/register': () => ({
     email: `matrix-new-${Date.now()}@example.com`,
     password: users.student.password,
@@ -330,6 +331,10 @@ const bodies = {
 };
 
 const specs = {
+  'POST /api/v1/auth/resend-verification': [
+    '/api/v1/auth/resend-verification',
+    'student',
+  ],
   ...sessionRouteSpecs,
   ...messagingRouteSpecs,
   'GET /api/v1/admin/dashboard': ['/api/v1/admin/dashboard', 'admin'],
@@ -1303,7 +1308,7 @@ async function assertRoute(route, [template, successRole]) {
 describe('executable route authorization matrix', () => {
   beforeAll(createFixture);
   it('derives every route and requires a concrete assertion body', () => {
-    expect(routeInventory.length).toBe(131);
+    expect(routeInventory.length).toBe(132);
     expect(Object.keys(specs).sort()).toEqual([...routeInventory].sort());
     for (const route of routeInventory) {
       expect(specs[route]).toBeTruthy();

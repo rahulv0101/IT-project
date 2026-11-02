@@ -31,6 +31,20 @@ test('registration accepts an omitted surname, explains errors and verifies emai
   await page.getByLabel('Email', { exact: true }).fill(email);
   await page.getByLabel('Password', { exact: true }).fill('CorrectHorse9!');
   await page
+    .getByRole('button', { name: 'Show password', exact: true })
+    .click();
+  await expect(page.getByLabel('Password', { exact: true })).toHaveAttribute(
+    'type',
+    'text',
+  );
+  await page
+    .getByRole('button', { name: 'Hide password', exact: true })
+    .click();
+  await expect(page.getByLabel('Password', { exact: true })).toHaveAttribute(
+    'type',
+    'password',
+  );
+  await page
     .getByLabel('Confirm password', { exact: true })
     .fill('DifferentPassword9!');
   await page.getByRole('button', { name: 'Register', exact: true }).click();
@@ -61,6 +75,15 @@ test('registration accepts an omitted surname, explains errors and verifies emai
   await page.reload();
   await expect(
     page.getByRole('heading', { name: 'Dashboard', exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Profile', exact: true }).click();
+  await page
+    .getByRole('button', { name: 'Resend verification email', exact: true })
+    .click();
+  await expect(
+    page.getByText('Check your email for a new verification link.', {
+      exact: true,
+    }),
   ).toBeVisible();
   const mail = await readFile(`docs/dev-mail/${user.user_id}.txt`, 'utf8');
   const url = new URL(mail.match(/https?:\/\/\S+/)[0]);

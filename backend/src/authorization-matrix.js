@@ -46,6 +46,7 @@ const routePolicies = {
   'POST /api/v1/auth/register': { auth: 'public' },
   'POST /api/v1/auth/login': { auth: 'public' },
   'GET /api/v1/auth/verify-email': { auth: 'public' },
+  'POST /api/v1/auth/resend-verification': { auth: 'student|lecturer' },
   'POST /api/v1/auth/login/mfa': { auth: 'public' },
   'POST /api/v1/mfa/enrol': { auth: 'student|lecturer' },
   'POST /api/v1/mfa/confirm': { auth: 'student|lecturer' },

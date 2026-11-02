@@ -17,6 +17,7 @@ const env = {
   AI_SERVICE_URL: 'http://127.0.0.1:8391',
   VITE_PORT: '5391',
   AI_PROVIDER: 'mock',
+  EMAIL_DELIVERY: 'development-file',
   PGLITE_E2E_DIR: '.pgdata/e2e-suite-55436',
   // The socket adapter is single-connection. Serialising backend queries avoids
   // protocol-level errors when one browser page loads several summaries.

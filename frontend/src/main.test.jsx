@@ -1627,6 +1627,22 @@ describe('frontend authentication and role routing', () => {
     fireEvent.change(screen.getByLabelText('Confirm password'), {
       target: { value: 'SecureAda9!' },
     });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Show password', exact: true }),
+    );
+    expect(screen.getByLabelText('Password').type).toBe('text');
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Hide password', exact: true }),
+    );
+    expect(screen.getByLabelText('Password').type).toBe('password');
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Show confirmation password',
+        exact: true,
+      }),
+    );
+    expect(screen.getByLabelText('Confirm password').type).toBe('text');
+
     expect(
       screen.getByText(/Password strength: 5 of 5 rules met/),
     ).toBeTruthy();

@@ -7,6 +7,9 @@ files; the largest source files also contain matching section banners.
 Quiz generation uses OpenRouter with Claude Haiku 5.5. See
 [`docs/OPENROUTER.md`](docs/OPENROUTER.md) for credentials, setup and verification.
 
+Verification email supports private development files or configured SMTP. See
+[`docs/EMAIL.md`](docs/EMAIL.md) for setup and delivery limits.
+
 ## Local development
 
 After installing dependencies and the Python requirements, `npm start` runs

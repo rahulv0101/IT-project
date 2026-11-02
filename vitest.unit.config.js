@@ -1,5 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
+process.env.EMAIL_DELIVERY = 'development-file';
+
 const databaseTests = [
   'backend/tests/admin-api.test.js',
   'backend/tests/group-sessions-api.test.js',

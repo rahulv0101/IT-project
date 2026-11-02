@@ -1,5 +1,19 @@
 # Decisions
 
+## 2026-11-03 — Compatible registration branch integration
+
+- Merge `Register-page-fixed` with current master as the compatibility baseline.
+  Retain optional surnames, opaque verification links, MFA, OpenRouter defaults,
+  portable launchers and existing system validation repairs.
+- Adopt independent password visibility controls and live requirement feedback.
+- Adapt SMTP to the existing link flow. Require TLS, preserve password bytes,
+  use private development mail files and prohibit production file fallback.
+- Resend requires a current session, uses the server's account/pending address,
+  rejects extra request fields and shares the authentication rate limiter.
+  Registration delivery failure leaves the account/session usable for retry.
+- Exclude the older global six-digit email-code lookup and required surname.
+  See `BRANCH_MERGE_REVIEW_2026-11-03.md` for branch inventory and evidence.
+
 ## 2026-11-02 — System validation and account-flow repairs
 
 - Treat a blank optional registration surname as absent. Return field validation

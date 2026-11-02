@@ -1,5 +1,10 @@
 # EduQuest traceability
 
+Latest branch integration: [3 November 2026 review](BRANCH_MERGE_REVIEW_2026-11-03.md).
+Password controls and scoped email resend are covered by `frontend/src/main.test.jsx`,
+`frontend/e2e/system-sweep.spec.js`, `backend/tests/email.test.js`,
+`backend/tests/identity-api.test.js` and the executable authorization matrix.
+
 Latest system-wide evidence: [2 November 2026 validation](VALIDATION_2026-11-02.md).
 That report supersedes historical pending status for the tested PostgreSQL,
 OpenRouter, native backup and account-flow checks below.

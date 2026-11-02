@@ -3,7 +3,8 @@ import 'dotenv/config';
 import crypto from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import request from 'supertest';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
+import nodemailer from 'nodemailer';
 
 process.env.NODE_ENV = 'development';
 process.env.COOKIE_SECURE = 'false';
@@ -138,5 +139,114 @@ describe('identity registration and verification', () => {
     expect(second.status).toBe(422);
     const mail = await readFile(`docs/dev-mail/${user.user_id}.txt`, 'utf8');
     expect(mail).toContain('Verify your EduQuest email');
+  });
+  it('resends verification only for the authenticated account and preserves pending address changes', async () => {
+    const agent = request.agent(app);
+    const address = `identity-resend-${crypto.randomUUID()}@example.com`;
+    const registered = await agent.post('/api/v1/auth/register').send({
+      email: address,
+      password: strong,
+      confirmPassword: strong,
+      firstName: 'Single',
+      studentType: 'it',
+    });
+    expect(registered.status).toBe(201);
+    const id = registered.body.user.user_id;
+    expect(
+      (await agent.post('/api/v1/auth/resend-verification').send({ email }))
+        .status,
+    ).toBe(400);
+    expect(
+      (await agent.post('/api/v1/auth/resend-verification').send({})).status,
+    ).toBe(200);
+    let mail = await readFile(`docs/dev-mail/${id}.txt`, 'utf8');
+    const token = new URL(mail.match(/https?:\/\/\S+/)[0]).searchParams.get(
+      'token',
+    );
+    expect(
+      (await agent.get('/api/v1/auth/verify-email').query({ token })).status,
+    ).toBe(200);
+    const count = (
+      await pool.query(
+        'SELECT count(*)::int AS n FROM email_verification_tokens WHERE user_id=$1',
+        [id],
+      )
+    ).rows[0].n;
+    expect(
+      (await agent.post('/api/v1/auth/resend-verification').send({})).status,
+    ).toBe(200);
+    expect(
+      (
+        await pool.query(
+          'SELECT count(*)::int AS n FROM email_verification_tokens WHERE user_id=$1',
+          [id],
+        )
+      ).rows[0].n,
+    ).toBe(count);
+    const target = `identity-pending-${crypto.randomUUID()}@example.com`;
+    expect(
+      (
+        await agent
+          .post('/api/v1/me/email')
+          .send({ password: strong, email: target })
+      ).status,
+    ).toBe(200);
+    expect(
+      (await agent.post('/api/v1/auth/resend-verification').send({})).status,
+    ).toBe(200);
+    mail = await readFile(`docs/dev-mail/${id}.txt`, 'utf8');
+    expect(mail).toContain(`To: ${target}`);
+    const pendingToken = new URL(
+      mail.match(/https?:\/\/\S+/)[0],
+    ).searchParams.get('token');
+    expect(
+      (
+        await agent
+          .get('/api/v1/auth/verify-email')
+          .query({ token: pendingToken })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await pool.query(
+          'SELECT email,pending_email FROM users WHERE user_id=$1',
+          [id],
+        )
+      ).rows[0],
+    ).toEqual({ email: target, pending_email: null });
+  });
+
+  it('keeps registration and its session usable when delivery fails, with a safe retry error', async () => {
+    vi.stubEnv('EMAIL_DELIVERY', 'smtp');
+    vi.stubEnv('SMTP_HOST', 'smtp.example.com');
+    vi.stubEnv('SMTP_FROM', 'verify@example.com');
+    const transport = vi.spyOn(nodemailer, 'createTransport').mockReturnValue({
+      sendMail: vi.fn().mockRejectedValue(new Error('private SMTP error')),
+    });
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const agent = request.agent(app);
+      const registered = await agent.post('/api/v1/auth/register').send({
+        email: `identity-failure-${crypto.randomUUID()}@example.com`,
+        password: strong,
+        confirmPassword: strong,
+        firstName: 'Single',
+        studentType: 'it',
+      });
+      expect(registered.status).toBe(201);
+      expect(registered.body.user.verification_delivery).toBe('unavailable');
+      expect((await agent.get('/api/v1/me/profile')).status).toBe(200);
+      const retry = await agent
+        .post('/api/v1/auth/resend-verification')
+        .send({});
+      expect(retry.status).toBe(503);
+      expect(retry.body.error.code).toBe('EMAIL_UNAVAILABLE');
+      expect(JSON.stringify(retry.body)).not.toContain('private SMTP');
+      expect(JSON.stringify(log.mock.calls)).not.toContain('private SMTP');
+    } finally {
+      transport.mockRestore();
+      log.mockRestore();
+      vi.unstubAllEnvs();
+    }
   });
 });
