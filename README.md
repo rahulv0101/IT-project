@@ -1,5 +1,8 @@
 # EduQuest
 
+Live site: **https://eduquest-dun.vercel.app**. See
+[deployment notes](docs/VERCEL_DEPLOYMENT.md) for hosting, accounts and validation.
+
 New contributors should start with [`docs/CODE_MAP.md`](docs/CODE_MAP.md). It
 maps every major feature to its frontend, backend, database, worker, and test
 files; the largest source files also contain matching section banners.

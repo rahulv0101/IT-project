@@ -5,7 +5,9 @@ import path from 'node:path';
 import os from 'node:os';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { get } from '@vercel/blob';
+vi.mock('@vercel/blob', () => ({ get: vi.fn(), put: vi.fn(), del: vi.fn() }));
 
 process.env.NODE_ENV = 'development';
 process.env.COOKIE_SECURE = 'false';
@@ -307,5 +309,38 @@ describe('student module and resource catalogue API', () => {
     const invalid = await firstYearAgent.get('/api/v1/me/modules?unknown=true');
     expect(invalid.status).toBe(422);
     expect(invalid.body.error).toMatchObject({ code: 'VALIDATION_ERROR' });
+  });
+  it('checks access before fetching private cloud bytes and survives a different function filesystem', async () => {
+    vi.stubEnv('BLOB_STORE_ID', 'store_test');
+    const bytes = Buffer.from('%PDF-1.4\nPrivate cloud notes\n%%EOF');
+    get.mockResolvedValue({
+      statusCode: 200,
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue(bytes);
+          controller.close();
+        },
+      }),
+    });
+    try {
+      const denied = await secondYearAgent.get(
+        `/api/v1/resources/${resourceId}/file`,
+      );
+      expect(denied.status).toBe(404);
+      expect(get).not.toHaveBeenCalled();
+      const allowed = await firstYearAgent.get(
+        `/api/v1/resources/${resourceId}/file`,
+      );
+      expect(allowed.status).toBe(200);
+      expect(Buffer.from(allowed.body)).toEqual(bytes);
+      expect(allowed.headers['content-type']).toContain('application/pdf');
+      expect(get).toHaveBeenCalledWith('uploads/student-notes.pdf', {
+        access: 'private',
+        useCache: false,
+      });
+    } finally {
+      vi.unstubAllEnvs();
+      vi.clearAllMocks();
+    }
   });
 });

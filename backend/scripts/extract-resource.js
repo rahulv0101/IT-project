@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readUpload } from '../src/file-storage.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -15,7 +15,20 @@ export async function extractResourceText(resource) {
   const extension = resource.resource_type.toLowerCase();
   let text;
   if (extension === 'txt' || extension === 'md') {
-    text = await readFile(resource.file_location, 'utf8');
+    text = (await readUpload(resource.file_location)).toString('utf8');
+  } else if (extension === 'pdf' && process.env.AI_EXTRACT_URL) {
+    const bytes = await readUpload(resource.file_location);
+    const response = await fetch(process.env.AI_EXTRACT_URL, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-ai-service-token': process.env.AI_SERVICE_TOKEN || '',
+      },
+      body: JSON.stringify({ content: bytes.toString('base64') }),
+      signal: AbortSignal.timeout(120000),
+    });
+    if (!response.ok) throw new Error('DOCUMENT_EXTRACTION_FAILED');
+    text = (await response.json()).text;
   } else if (extension === 'pdf') {
     try {
       const result = await run(

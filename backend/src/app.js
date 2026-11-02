@@ -9,7 +9,7 @@
 import 'dotenv/config';
 import crypto from 'node:crypto';
 import path from 'node:path';
-import { access, mkdir, readFile, unlink } from 'node:fs/promises';
+import { mkdir, readFile, unlink } from 'node:fs/promises';
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
@@ -20,6 +20,7 @@ import multer from 'multer';
 import QRCode from 'qrcode';
 import { z } from 'zod';
 import { sendVerificationEmail } from './email.js';
+import { readUpload, persistUpload } from './file-storage.js';
 import {
   emailSchema,
   normalizePersonName,
@@ -96,7 +97,7 @@ const hasAllowedMagic = (extension, bytes) =>
 app.use(helmet());
 app.use(
   cors({
-    origin: 'http://localhost:5173',
+    origin: process.env.PUBLIC_APP_URL || 'http://localhost:5173',
     credentials: true,
   }),
 );
@@ -2246,8 +2247,9 @@ app.get(
         );
       const resource = result.rows[0];
       const file = path.resolve(resource.file_location);
+      let fileBytes;
       try {
-        await access(file);
+        fileBytes = await readUpload(file);
       } catch {
         return error(
           res,
@@ -2278,9 +2280,7 @@ app.get(
         'Cache-Control': 'private, no-store',
         'X-Content-Type-Options': 'nosniff',
       });
-      res.sendFile(file, (sendError) => {
-        if (sendError && !res.headersSent) next(sendError);
-      });
+      res.send(fileBytes);
     } catch (e) {
       next(e);
     }
@@ -2347,6 +2347,7 @@ app.post(
         );
       }
       const groupId = req.body.groupId || null;
+      await persistUpload(req.file.path, bytes);
       const result = await pool.query(
         `INSERT INTO resources(uploaded_by,module_id,group_id,title,resource_type,file_location,file_size_bytes) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
         [
@@ -4724,6 +4725,15 @@ registerMessagingRoutes({ app, pool, requireAuth, error, requestId });
 registerAdminRoutes({ app, pool, requireAuth, error, requestId });
 
 app.use((err, req, res, _next) => {
+  if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+    return error(
+      res,
+      413,
+      'UPLOAD_TOO_LARGE',
+      'This file exceeds the upload limit.',
+      requestId(req),
+    );
+  }
   console.error(
     JSON.stringify({
       requestId: requestId(req),

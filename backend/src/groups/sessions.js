@@ -632,6 +632,9 @@ export function registerSessionRoutes({
     try {
       const p = parse(pageSchema, req.query, req, res);
       if (!p) return;
+      // Hosted functions do not run the local polling daemon. Catch up due,
+      // idempotent in-app reminders whenever notifications are requested.
+      if (process.env.VERCEL) await generateSessionReminders(pool);
       const visible = `FROM notifications n JOIN group_sessions s USING(session_id) WHERE n.user_id=$1 AND EXISTS(SELECT 1 FROM group_members gm WHERE gm.group_id=s.group_id AND gm.student_id=$1)`;
       const data = (
         await pool.query(

@@ -15,3 +15,9 @@ docs/runtime-logs/
 .pytest_cache/
 __pycache__/
 .pgsql/
+
+.vercel/
+.env.local
+.env.*.local
+.vercel
+.env*

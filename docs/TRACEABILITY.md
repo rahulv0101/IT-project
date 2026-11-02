@@ -1,5 +1,9 @@
 # EduQuest traceability
 
+Live deployment evidence: [Vercel deployment](VERCEL_DEPLOYMENT.md).
+Private file access, hosted PDF extraction, production sessions and real
+OpenRouter persistence/submission are covered there.
+
 Latest branch integration: [3 November 2026 review](BRANCH_MERGE_REVIEW_2026-11-03.md).
 Password controls and scoped email resend are covered by `frontend/src/main.test.jsx`,
 `frontend/e2e/system-sweep.spec.js`, `backend/tests/email.test.js`,

@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import { readFile, unlink } from 'node:fs/promises';
 import multer from 'multer';
+import { persistUpload, readUpload, removeUpload } from '../file-storage.js';
 import { z } from 'zod';
 import { containsProfanity } from '../profanity/index.js';
 
@@ -520,7 +521,12 @@ export function registerMessagingRoutes({
 
   const messageUpload = multer({
     dest: path.resolve(process.env.UPLOAD_DIR || './uploads'),
-    limits: { fileSize: 5 * 1024 * 1024 },
+    limits: {
+      fileSize: Math.min(
+        5 * 1024 * 1024,
+        Number(process.env.UPLOAD_MAX_BYTES || 5 * 1024 * 1024),
+      ),
+    },
   });
   app.post(
     '/api/v1/groups/:groupId/messages/:messageId/attachments',
@@ -615,6 +621,22 @@ export function registerMessagingRoutes({
           );
           return;
         }
+        const ownedMessage = await pool.query(
+          'SELECT 1 FROM group_messages WHERE message_id=$1 AND group_id=$2 AND author_id=$3',
+          [req.params.messageId, g.group_id, req.user.userId],
+        );
+        if (!ownedMessage.rowCount) {
+          await unlink(req.file.path).catch(() => {});
+          fail(
+            req,
+            res,
+            403,
+            'FORBIDDEN',
+            'You cannot attach to that message.',
+          );
+          return;
+        }
+        await persistUpload(req.file.path, bytes);
         const r = await pool.query(
           `INSERT INTO group_message_attachments(message_id,stored_name,original_name,mime_type,size_bytes) SELECT $1,$2,$3,$4,$5 WHERE EXISTS(SELECT 1 FROM group_messages WHERE message_id=$1 AND group_id=$6 AND author_id=$7) RETURNING attachment_id`,
           [
@@ -628,7 +650,7 @@ export function registerMessagingRoutes({
           ],
         );
         if (!r.rowCount) {
-          await unlink(req.file.path).catch(() => {});
+          await removeUpload(req.file.path).catch(() => {});
           fail(
             req,
             res,
@@ -672,11 +694,20 @@ export function registerMessagingRoutes({
           return;
         }
         if (r.resource_id) {
-          return res.sendFile(path.resolve(r.resource_file));
+          return res
+            .type(path.extname(r.resource_file) || 'application/octet-stream')
+            .send(await readUpload(path.resolve(r.resource_file)));
         }
-        res.sendFile(
-          path.resolve(process.env.UPLOAD_DIR || './uploads', r.stored_name),
-        );
+        res
+          .type(r.mime_type || 'application/octet-stream')
+          .send(
+            await readUpload(
+              path.resolve(
+                process.env.UPLOAD_DIR || './uploads',
+                r.stored_name,
+              ),
+            ),
+          );
       } catch (e) {
         next(e);
       }

@@ -1781,6 +1781,15 @@ export function Resources({ user }) {
     event.preventDefault();
     setError('');
     const file = event.target.file.files[0];
+    const maxUploadBytes = Number(
+      import.meta.env.VITE_UPLOAD_MAX_BYTES || 20 * 1024 * 1024,
+    );
+    if (file && file.size > maxUploadBytes) {
+      setError(
+        `Choose a file no larger than ${Math.floor(maxUploadBytes / (1024 * 1024))} MiB.`,
+      );
+      return;
+    }
     const form = new FormData();
     form.append('title', title);
     form.append('file', file);

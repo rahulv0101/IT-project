@@ -19,7 +19,7 @@ def read_env_file(path: str | Path) -> dict[str, str]:
 
 
 def load_clean_env(path: str | Path) -> dict[str, str]:
-    values = read_env_file(path)
+    values = read_env_file(path) if Path(path).is_file() else {}
     for key, value in values.items():
         # Explicit process environment wins over the project file (important
         # for tests and for launcher-supplied configuration).

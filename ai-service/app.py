@@ -71,6 +71,25 @@ async def protect_service(request: Request, call_next):
         return JSONResponse(status_code=504, content={"detail": "AI request timed out"})
 
 
+class PdfExtractionRequest(BaseModel):
+    content: str = Field(max_length=4_200_000)
+
+
+@app.post("/extract-pdf")
+def extract_pdf(request: PdfExtractionRequest):
+    import base64
+    import io
+    from tools.extract_pdf import extract
+    logging.getLogger("pypdf").setLevel(logging.CRITICAL)
+    try:
+        raw = base64.b64decode(request.content, validate=True)
+        if not raw.startswith(b"%PDF-"):
+            raise ValueError("Invalid PDF")
+        return {"text": extract(io.BytesIO(raw))}
+    except Exception:
+        raise HTTPException(status_code=422, detail="DOCUMENT_EXTRACTION_FAILED") from None
+
+
 # Provider interface and implementations -------------------------------------
 class LLMProvider(Protocol):
     def generate_quiz(self, request: "QuizRequest") -> "QuizResponse": ...

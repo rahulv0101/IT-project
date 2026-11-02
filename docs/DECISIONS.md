@@ -1,5 +1,20 @@
 # Decisions
 
+## 2026-11-03 — Vercel deployment
+
+- Deploy the existing Vite/Express frontend/API and the authenticated Python AI
+  service as two Vercel projects owned by Rahul. Use a fresh free Neon database;
+  do not expose the local development dataset or public demo passwords.
+- Use private Blob storage with existing resource/group authorization, a 3 MiB
+  hosted upload limit, and local filesystem behavior outside the cloud.
+- Retain persistent PostgreSQL job claims and bounded `waitUntil` work triggered
+  by generation/status/retry requests. Catch up in-app reminders on notification
+  reads rather than keeping a free database permanently awake with polling.
+- Enable production admin MFA and store bootstrap credentials/recovery material
+  only in ignored private files. SMTP delivery remains unconfigured.
+- Keep hosting secrets encrypted server-side. Document direct deployment and
+  validation in `VERCEL_DEPLOYMENT.md`; automatic GitHub linking is not connected.
+
 ## 2026-11-03 — Compatible registration branch integration
 
 - Merge `Register-page-fixed` with current master as the compatibility baseline.
