@@ -1,5 +1,17 @@
 # EduQuest traceability
 
+## Desktop launcher and local AI
+
+| Requirement | Implementation | Evidence |
+| --- | --- | --- |
+| Double-click launcher works from the project folder without a hard-coded user path | `Run EduQuest.bat`, `Start-EduQuest.ps1` | Root resolved from `%~dp0`; PowerShell runtime preflight |
+| Fresh development database setup creates local Ollama configuration | `scripts/pglite-server.mjs`, `.env.example` | Defaults select `openai_compatible`, local Ollama URL, `phi3:mini`, and a 300-second local generation budget; existing `.env` is preserved |
+| Service token setup runs after `.env` is created | `Start-EduQuest.ps1` | Database startup precedes `npm run setup:token` |
+| AI service dependencies are installed on first launch | `Start-EduQuest.ps1`, `ai-service/requirements.txt` | Import preflight installs the pinned requirements if needed |
+| Local Ollama server and configured model are ready before service startup | `Start-EduQuest.ps1` | Starts loopback Ollama when needed and checks the configured model |
+
+Machine verification on 2026-11-02: the batch launcher started the database, backend, AI service and frontend; all launcher health checks passed. Ollama downloaded `phi3:mini` (2.2 GB), and an authenticated live `/generate-quiz` request returned one valid question after raising the local request timeout to 300 seconds.
+
 Status reflects the current local implementation. PGlite evidence is explicitly not equivalent to real PostgreSQL concurrency evidence.
 
 ## Games chooser
@@ -179,6 +191,8 @@ The chooser implementation is covered by 6 availability unit tests, the API choo
 ## Registration and login improvement
 
 The identity slice is covered by 7 identity API tests, 44 frontend authentication/component tests, and the 60-route authorization matrix. The MFA backend is covered by 5 named integration tests for enrolment, fixed-clock TOTP confirmation, login challenge/replay, recovery-code single use, lockout, disable and regeneration. MFA frontend, lecturer enforcement, and browser coverage are intentionally outside this slice.
+
+The registration repair adds required first/last-name UI fields, per-field API error mapping, live password-rule feedback, resendable six-digit email OTP verification, SMTP delivery configuration, and development-file fallback. Existing accounts and legacy full-name API fixtures remain compatible. Evidence: `frontend/src/main.jsx`, `backend/src/app.js`, `backend/src/email.js`, `backend/tests/identity-api.test.js`, and `frontend/src/main.test.jsx`.
 | Profile management | Editable identity, language preferences, email re-verification, password/session rotation and MFA status | automated: `backend/tests/profile-api.test.js` (7 tests), authorization matrix |
 
 ## Module and resource catalogue slice

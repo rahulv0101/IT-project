@@ -1,5 +1,22 @@
 # Decisions
 
+## 2026-11-02 — Registration validation and email OTP
+
+- New student registration requires first and last names. Names are validated server-side and the API returns field-level validation details; the frontend mirrors those details beside the corresponding input.
+- Password requirements are displayed individually while typing. Client checks are advisory; the server remains authoritative for password composition and identity checks.
+- Registration verification uses a six-digit, single-use code stored only as a hash and expiring after ten minutes. Existing verification-link requests remain supported for compatibility with existing accounts and profile email changes.
+- Email delivery uses SMTP when `SMTP_HOST` and `SMTP_FROM` are configured. Development without SMTP writes the code to the ignored `docs/dev-mail/` directory so local tests remain deterministic; production refuses to fall back to filesystem mail.
+- Existing users, sessions, attempts, and academic records are not cleared or rewritten by this change. The existing verification-token table is reused, so no destructive migration is required.
+
+## 2026-11-02 — Local Ollama default for desktop launch
+
+- Fresh desktop setups configure the existing OpenAI-compatible AI provider for Ollama at `127.0.0.1:11434/v1`, with model `phi3:mini`. The local placeholder API key is required by the client library and is not a secret.
+- Local provider and service request timeouts are 300 seconds so CPU-bound model generation is not cut off by the service's general 45-second default.
+- The launcher resolves its project root from the batch file location, checks Node.js/npm and Python before starting, and creates the service token only after the database startup has created `.env`.
+- The launcher installs the pinned AI-service Python requirements when their imports are missing, so a first run can bring up the AI service without a separate manual pip step.
+- When the configured provider points to local Ollama, the launcher starts its local server if needed and reports a missing configured model before starting the remaining services.
+- Existing `.env` values are preserved. Model installation and Ollama availability are handled as local machine prerequisites; quiz correctness and scores remain server-authoritative.
+
 ## 2026-10-09 — Milestone 1 foundation
 
 - Use UUID primary keys throughout; `group_members` uses a composite `(group_id, student_id)` primary key.

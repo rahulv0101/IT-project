@@ -9,7 +9,7 @@ export const personNameSchema = z
   .max(50)
   .regex(
     /^[\p{L}]+(?:[ '\u002D][\p{L}]+)*$/u,
-    'Use letters, spaces, hyphens or apostrophes only.',
+    'Must contain only letters, spaces, hyphens, or apostrophes.',
   )
   .refine(noProfanity(), { message: profanityMessage });
 

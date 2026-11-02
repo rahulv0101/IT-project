@@ -2,7 +2,7 @@
 import 'dotenv/config';
 import crypto from 'node:crypto';
 import path from 'node:path';
-import { access, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, unlink } from 'node:fs/promises';
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
@@ -59,6 +59,7 @@ import {
   totpAt,
   validTotp,
 } from './mfa.js';
+import { sendVerificationCode } from './email.js';
 
 const app = express();
 const cookieSecure =
@@ -105,7 +106,10 @@ const authLimiter = rateLimit({
     },
   },
 });
-app.use(['/api/v1/auth/login', '/api/v1/auth/register'], authLimiter);
+app.use(
+  ['/api/v1/auth/login', '/api/v1/auth/register', '/api/v1/auth/resend-verification'],
+  authLimiter,
+);
 
 // This endpoint exists only for the isolated browser-test process. It resets
 // the in-memory limiter between independent browser tests; production never
@@ -335,13 +339,18 @@ const parse = (schema, value, req, res, validationStatus = 400) => {
     const hasProfanity = result.error.issues.some(
       (issue) => issue.message === profanityMessage,
     );
-    error(
-      res,
-      hasProfanity ? 422 : validationStatus,
-      hasProfanity ? 'TEXT_NOT_ALLOWED' : 'VALIDATION_ERROR',
-      hasProfanity ? profanityMessage : 'Please check the submitted fields.',
-      requestId(req),
-    );
+    const details = result.error.issues.map((issue) => ({
+      field: issue.path.join('.') || '_form',
+      message: issue.message,
+    }));
+    res.status(hasProfanity ? 422 : validationStatus).json({
+      error: {
+        code: hasProfanity ? 'TEXT_NOT_ALLOWED' : 'VALIDATION_ERROR',
+        message: hasProfanity ? profanityMessage : 'Please check the submitted fields.',
+        details,
+        requestId: requestId(req),
+      },
+    });
     return null;
   }
   return result.data;
@@ -418,18 +427,12 @@ const issueSession = async (userId, res) => {
   });
 };
 const issueVerificationMail = async (userId, email, targetEmail = null) => {
-  const token = crypto.randomBytes(32).toString('base64url');
+  const code = String(crypto.randomInt(100000, 1000000));
   await pool.query(
-    `INSERT INTO email_verification_tokens(user_id,token_hash,target_email,expires_at) VALUES($1,$2,$3,now()+interval '24 hours')`,
-    [userId, sessionHash(token), targetEmail],
+    `INSERT INTO email_verification_tokens(user_id,token_hash,target_email,expires_at) VALUES($1,$2,$3,now()+interval '10 minutes')`,
+    [userId, sessionHash(code), targetEmail],
   );
-  const mailDir = path.resolve('docs/dev-mail');
-  await mkdir(mailDir, { recursive: true });
-  await writeFile(
-    path.join(mailDir, `${userId}.txt`),
-    `To: ${email}\nVerify your EduQuest email: http://localhost:5173/verify-email?token=${token}\n`,
-    'utf8',
-  );
+  await sendVerificationCode({ userId, email, code });
 };
 
 const nameSchema = z
@@ -454,6 +457,10 @@ const registerSchema = z
   .refine((data) => data.firstName || data.fullName, {
     message: 'First name is required.',
     path: ['firstName'],
+  })
+  .refine((data) => data.fullName || data.lastName, {
+    message: 'Last name is required.',
+    path: ['lastName'],
   })
   .refine(
     (data) => !data.confirmPassword || data.password === data.confirmPassword,
@@ -576,10 +583,21 @@ app.post('/api/v1/auth/register', async (req, res, next) => {
         data.studentYear || 1,
       ],
     );
-    await issueVerificationMail(result.rows[0].user_id, data.email);
+    let verificationDelivery = 'unavailable';
+    try {
+      await issueVerificationMail(result.rows[0].user_id, data.email);
+      verificationDelivery = 'sent';
+    } catch (mailError) {
+      // Account creation must not be lost because an email provider is unavailable.
+      console.error('Verification email delivery failed:', mailError.message);
+    }
     await issueSession(result.rows[0].user_id, res);
     res.status(201).json({
-      user: { ...result.rows[0], needs_email_verification: true },
+      user: {
+        ...result.rows[0],
+        needs_email_verification: true,
+        verification_delivery: verificationDelivery,
+      },
     });
   } catch (e) {
     if (e.code === '23505')
@@ -593,32 +611,68 @@ app.post('/api/v1/auth/register', async (req, res, next) => {
     next(e);
   }
 });
+
+app.post('/api/v1/auth/resend-verification', requireAuth, async (req, res, next) => {
+  try {
+    const result = await pool.query(
+      'SELECT email,email_verified_at FROM users WHERE user_id=$1',
+      [req.user.userId],
+    );
+    if (!result.rowCount || result.rows[0].email_verified_at)
+      return res.json({ sent: true });
+    await issueVerificationMail(req.user.userId, result.rows[0].email);
+    return res.json({ sent: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+const completeEmailVerification = async (code, res, req) => {
+  const result = await pool.query(
+    `UPDATE email_verification_tokens SET used_at=now() WHERE token_hash=$1 AND used_at IS NULL AND expires_at>now() RETURNING user_id,target_email`,
+    [sessionHash(code)],
+  );
+  if (!result.rowCount)
+    return error(
+      res,
+      422,
+      'INVALID_VERIFICATION_CODE',
+      'That verification code is invalid or expired. Request a new code and try again.',
+      requestId(req),
+    );
+  await pool.query(
+    `UPDATE users SET email=COALESCE($2,email),pending_email=NULL,email_verified_at=now() WHERE user_id=$1`,
+    [result.rows[0].user_id, result.rows[0].target_email],
+  );
+  return res.json({ verified: true });
+};
+
+app.post('/api/v1/auth/verify-email', async (req, res, next) => {
+  try {
+    const data = parse(
+      z.object({ code: z.string().regex(/^\d{6}$/, 'Enter the 6-digit verification code.') }).strict(),
+      req.body,
+      req,
+      res,
+      422,
+    );
+    if (!data) return;
+    await completeEmailVerification(data.code, res, req);
+  } catch (e) {
+    next(e);
+  }
+});
+
 app.get('/api/v1/auth/verify-email', async (req, res, next) => {
   try {
     const data = parse(
-      z.object({ token: z.string().min(20).max(200) }).strict(),
+      z.object({ token: z.string().min(6).max(200) }).strict(),
       req.query,
       req,
       res,
     );
     if (!data) return;
-    const result = await pool.query(
-      `UPDATE email_verification_tokens SET used_at=now() WHERE token_hash=$1 AND used_at IS NULL AND expires_at>now() RETURNING user_id,target_email`,
-      [sessionHash(data.token)],
-    );
-    if (!result.rowCount)
-      return error(
-        res,
-        422,
-        'INVALID_VERIFICATION_TOKEN',
-        'This verification link is invalid or expired.',
-        requestId(req),
-      );
-    await pool.query(
-      `UPDATE users SET email=COALESCE($2,email),pending_email=NULL,email_verified_at=now() WHERE user_id=$1`,
-      [result.rows[0].user_id, result.rows[0].target_email],
-    );
-    res.json({ verified: true });
+    await completeEmailVerification(data.token, res, req);
   } catch (e) {
     next(e);
   }

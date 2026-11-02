@@ -58,6 +58,12 @@ async function writeEnv() {
     'TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5433/eduquest_test?sslmode=disable',
     'PGLITE_DEV_PORT=5432',
     'PGLITE_TEST_PORT=5433',
+    'AI_PROVIDER=openai_compatible',
+    'AI_BASE_URL=http://127.0.0.1:11434/v1',
+    'AI_API_KEY=ollama',
+    'AI_MODEL=phi3:mini',
+    'AI_TIMEOUT_SECONDS=300',
+    'AI_REQUEST_TIMEOUT_SECONDS=300',
   ];
   await writeFile(envPath, `${lines.join('\n')}\n`, 'utf8');
   return lines.map((line) => line.split('=')[0]);

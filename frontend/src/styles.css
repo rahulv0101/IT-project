@@ -1197,6 +1197,50 @@ select {
 .field-error {
   font-size: 13px;
   line-height: 1.5;
+  color: #b42318;
+}
+.form-error {
+  color: #b42318;
+  background: #fff1f0;
+  border: 1px solid #f3b5b0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  line-height: 1.5;
+}
+.password-rules {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+.password-rules .met {
+  color: #247443;
+}
+.password-rules .unmet {
+  color: #5d6678;
+}
+.password-input-wrap {
+  display: flex;
+  position: relative;
+}
+.password-input-wrap input {
+  padding-right: 64px;
+}
+.password-toggle {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: #3b4bdb;
+  font-size: 12px;
+  font-weight: 700;
+  min-height: 32px;
+  padding: 4px 6px;
+  cursor: pointer;
 }
 .generation-controls {
   display: grid;

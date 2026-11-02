@@ -96,16 +96,29 @@ describe('identity registration and verification', () => {
       password: strong,
       confirmPassword: strong,
       firstName: 'Another',
+      lastName: 'Duplicate',
       studentType: 'it',
     });
     expect(duplicate.status).toBe(409);
   });
 
-  it('accepts a verification token once and rejects reuse', async () => {
-    const raw = 'identity-verification-token-1234567890';
+  it('accepts an OTP once, rejects OTP reuse, and keeps link compatibility', async () => {
     const user = (
       await pool.query('SELECT user_id FROM users WHERE email=$1', [email])
     ).rows[0];
+    const generatedMail = await readFile(`docs/dev-mail/${user.user_id}.txt`, 'utf8');
+    const code = generatedMail.match(/code is (\d{6})/)?.[1];
+    expect(code).toMatch(/^\d{6}$/);
+    const otp = await request(app)
+      .post('/api/v1/auth/verify-email')
+      .send({ code });
+    expect(otp.status).toBe(200);
+    const reusedOtp = await request(app)
+      .post('/api/v1/auth/verify-email')
+      .send({ code });
+    expect(reusedOtp.status).toBe(422);
+
+    const raw = 'identity-verification-token-1234567890';
     await pool.query(
       `INSERT INTO email_verification_tokens(user_id,token_hash,expires_at) VALUES($1,$2,now()+interval '1 hour')`,
       [user.user_id, crypto.createHash('sha256').update(raw).digest('hex')],

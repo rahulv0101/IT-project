@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-set "ROOT=C:\Users\User\Desktop\IT project build"
+for %%I in ("%~dp0.") do set "ROOT=%%~fI"
 set "LOG=%ROOT%\docs\eduquest-launch.log"
 set "RUNLOG=%ROOT%\docs\eduquest-launch-%RANDOM%-%RANDOM%.tmp.log"
 if not exist "%ROOT%\" (

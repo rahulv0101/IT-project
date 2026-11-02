@@ -1553,7 +1553,8 @@ describe('frontend authentication and role routing', () => {
             first_name: 'Ada',
           },
         }),
-      );
+      )
+      .mockResolvedValueOnce(response({ verified: true }));
     vi.stubGlobal('fetch', fetchMock);
     render(<App />);
     await waitFor(() => screen.getByText('Welcome back'));
@@ -1561,7 +1562,7 @@ describe('frontend authentication and role routing', () => {
     fireEvent.change(screen.getByLabelText('First name'), {
       target: { value: 'Ada' },
     });
-    fireEvent.change(screen.getByLabelText('Last name (optional)'), {
+    fireEvent.change(screen.getByLabelText('Last name'), {
       target: { value: 'Lovelace' },
     });
     fireEvent.change(screen.getByLabelText('Email'), {
@@ -1573,15 +1574,17 @@ describe('frontend authentication and role routing', () => {
     fireEvent.change(screen.getByLabelText('Confirm password'), {
       target: { value: 'SecureAda9!' },
     });
-    expect(
-      screen.getByText(/Password strength: 5 of 5 rules met/),
-    ).toBeTruthy();
+    expect(screen.getByText('At least 10 characters')).toBeTruthy();
+    expect(screen.getByText('At least one special character')).toBeTruthy();
     fireEvent.submit(
       screen.getByRole('button', { name: 'Register' }).closest('form'),
     );
-    await waitFor(() =>
-      expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeTruthy(),
-    );
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Check your email' })).toBeTruthy());
+    fireEvent.change(screen.getByLabelText('Verification code'), {
+      target: { value: '123456' },
+    });
+    fireEvent.submit(screen.getByRole('button', { name: 'Verify email' }).closest('form'));
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeTruthy());
     const registration = fetchMock.mock.calls.find(([url]) =>
       url.endsWith('/auth/register'),
     );

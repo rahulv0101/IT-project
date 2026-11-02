@@ -31,6 +31,16 @@ try {
     exit 0
   }
 
+  Step 'Check required runtimes' {
+    if (-not (Get-Command node.exe -ErrorAction SilentlyContinue)) {
+      $nodeInstall = Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages\OpenJS.NodeJS.LTS_*\node-v*-win-x64\node.exe') -ErrorAction SilentlyContinue | Select-Object -First 1
+      if ($nodeInstall) { $env:Path = "$($nodeInstall.DirectoryName);$env:Path" }
+    }
+    if (-not (Get-Command node.exe -ErrorAction SilentlyContinue)) { throw 'Node.js is missing. Install the Node.js LTS Windows version, then click Run EduQuest.bat again.' }
+    if (-not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) { throw 'npm is missing from PATH. Repair the Node.js LTS installation and click Run EduQuest.bat again.' }
+    if (-not (Get-Command py.exe -ErrorAction SilentlyContinue) -and -not (Get-Command python.exe -ErrorAction SilentlyContinue)) { throw 'Python 3 is missing. Install Python 3, then click Run EduQuest.bat again.' }
+  }
+
 function Stop-ProjectProcess($port) {
   $connections = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
   foreach ($connection in $connections) {
@@ -95,13 +105,41 @@ function Start-ProjectScript([string]$name, [string]$relativePath, [switch]$Hidd
 }
 
   Step 'Install dependencies if needed' { if (-not (Test-Path 'node_modules')) { npm install } }
-  Step 'Set up service token' { npm run setup:token }
+  Step 'Install AI service dependencies if needed' {
+    if (Get-Command py.exe -ErrorAction SilentlyContinue) { $pythonCommand = 'py'; $pythonVersionArgs = @('-3') }
+    else { $pythonCommand = 'python'; $pythonVersionArgs = @() }
+    & $pythonCommand @pythonVersionArgs -c "import anthropic, fastapi, openai, uvicorn"
+    if ($LASTEXITCODE -ne 0) { & $pythonCommand @pythonVersionArgs -m pip install -r 'ai-service\requirements.txt' }
+  }
   Step 'Stop old project processes' {
     Stop-PreviousProjectLaunchers
     foreach ($port in @(4000, 5173, 8000)) { Stop-ProjectProcess $port }
   }
 
   Step 'Start database' { npm run db:start }
+  Step 'Set up service token' { npm run setup:token }
+  Step 'Start local Ollama when configured' {
+    $envLines = Get-Content .env
+    $providerLine = $envLines | Where-Object { $_ -match '^AI_PROVIDER=' } | Select-Object -First 1
+    $baseLine = $envLines | Where-Object { $_ -match '^AI_BASE_URL=' } | Select-Object -First 1
+    if ($providerLine -and $providerLine -match '=\s*openai_compatible\s*$' -and $baseLine -and $baseLine -match '=\s*http://(127\.0\.0\.1|localhost):11434') {
+      $ollama = Get-Command ollama.exe -ErrorAction SilentlyContinue
+      $ollamaPath = if ($ollama) { $ollama.Source } else { Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama.exe' }
+      if (-not (Test-Path -LiteralPath $ollamaPath -PathType Leaf)) { throw 'Ollama is configured but not installed. Install Ollama, then click Run EduQuest.bat again.' }
+      $tags = $null
+      try { $tags = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 2 } catch {
+        Start-Process -FilePath $ollamaPath -ArgumentList 'serve' -WindowStyle Hidden
+        for ($attempt = 1; $attempt -le 60; $attempt++) {
+          try { $tags = Invoke-RestMethod -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 2; break } catch { Start-Sleep -Seconds 1 }
+        }
+      }
+      if (-not $tags) { throw 'Ollama did not start on 127.0.0.1:11434.' }
+      $modelLine = $envLines | Where-Object { $_ -match '^AI_MODEL=' } | Select-Object -First 1
+      $model = if ($modelLine) { ($modelLine -split '=', 2)[1].Trim().Trim('"').Trim("'") } else { 'phi3:mini' }
+      if (-not ($tags.models | Where-Object { $_.name -eq $model })) { throw "Ollama model $model is missing. Run: ollama pull $model" }
+      Say "Ollama ready with model $model"
+    }
+  }
   Step 'Run migrations' { npm run db:migrate }
   Step 'Seed demo data' { npm run seed }
   Step 'Start session reminders' { Start-ProjectScript 'Session reminders' 'scripts\run-session-reminders.ps1' -Hidden }

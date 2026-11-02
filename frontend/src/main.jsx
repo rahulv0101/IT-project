@@ -17,8 +17,11 @@ const api = async (path, options = {}) => {
     headers: { 'content-type': 'application/json', ...(options.headers || {}) },
   });
   const body = response.status === 204 ? null : await response.json();
-  if (!response.ok)
-    throw new Error(body?.error?.message || 'Something went wrong.');
+  if (!response.ok) {
+    const failure = new Error(body?.error?.message || 'Something went wrong.');
+    failure.details = body?.error?.details || [];
+    throw failure;
+  }
   return body;
 };
 
@@ -34,9 +37,34 @@ function Auth({ onLogin }) {
     studentYear: 1,
   });
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [verification, setVerification] = useState(null);
+  const [verificationCode, setVerificationCode] = useState('');
+  const [verificationError, setVerificationError] = useState('');
+  const [resending, setResending] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const setField = (name, value) => {
+    setForm((current) => ({ ...current, [name]: value }));
+    setFieldErrors((current) => ({ ...current, [name]: '' }));
+    setError('');
+  };
+  const passwordRules = [
+    ['length', 'At least 10 characters', form.password.length >= 10],
+    ['uppercase', 'At least one uppercase letter', /[A-Z]/.test(form.password)],
+    ['lowercase', 'At least one lowercase letter', /[a-z]/.test(form.password)],
+    ['number', 'At least one number', /[0-9]/.test(form.password)],
+    ['special', 'At least one special character', /[^A-Za-z0-9]/.test(form.password)],
+  ];
   const submit = async (event) => {
     event.preventDefault();
     setError('');
+    setFieldErrors({});
+    if (mode === 'register' && form.password !== form.confirmPassword) {
+      setFieldErrors({ confirmPassword: 'Passwords do not match.' });
+      return;
+    }
     try {
       const body = await api(`/auth/${mode}`, {
         method: 'POST',
@@ -46,11 +74,82 @@ function Auth({ onLogin }) {
             : form,
         ),
       });
-      onLogin(body.user);
+      if (mode === 'register') {
+        setVerification({ user: body.user, email: form.email });
+      } else {
+        onLogin(body.user);
+      }
     } catch (reason) {
-      setError(reason.message);
+      const mapped = {};
+      for (const detail of reason.details || []) mapped[detail.field] = detail.message;
+      setFieldErrors(mapped);
+      setError(Object.keys(mapped).length ? '' : reason.message);
     }
   };
+  const verify = async (event) => {
+    event.preventDefault();
+    setVerifying(true);
+    setVerificationError('');
+    try {
+      await api('/auth/verify-email', {
+        method: 'POST',
+        body: JSON.stringify({ code: verificationCode }),
+      });
+      onLogin({ ...verification.user, email_verified_at: new Date().toISOString(), needs_email_verification: false });
+    } catch (reason) {
+      setVerificationError(reason.message);
+    } finally {
+      setVerifying(false);
+    }
+  };
+  const resend = async () => {
+    setResending(true);
+    setVerificationError('');
+    try {
+      await api('/auth/resend-verification', { method: 'POST' });
+      setVerificationError('A new verification code was sent.');
+    } catch (reason) {
+      setVerificationError(reason.message);
+    } finally {
+      setResending(false);
+    }
+  };
+  if (verification) {
+    return (
+      <main className="auth-page">
+        <section className="card auth-card" aria-labelledby="verify-heading">
+          <span className="eyebrow">EDUQUEST</span>
+          <h1 id="verify-heading">Check your email</h1>
+          <p className="auth-description">
+            We sent a 6-digit verification code to <strong>{verification.email}</strong>.
+          </p>
+          <form onSubmit={verify}>
+            <label>
+              Verification code
+              <input
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]{6}"
+                maxLength="6"
+                value={verificationCode}
+                onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                required
+              />
+            </label>
+            <p className="muted">The code expires in 10 minutes and can only be used once.</p>
+            {verificationError && <p className="form-error" role="alert">{verificationError}</p>}
+            <button className="primary" type="submit" disabled={verifying || verificationCode.length !== 6}>
+              {verifying ? 'Verifying…' : 'Verify email'}
+            </button>
+            <button className="link-button" type="button" onClick={resend} disabled={resending}>
+              {resending ? 'Sending…' : 'Resend code'}
+            </button>
+          </form>
+        </section>
+      </main>
+    );
+  }
+  const fieldMessage = (name) => fieldErrors[name] && <small className="field-error" role="alert">{fieldErrors[name]}</small>;
   return (
     <main className="auth-page">
       <section className="auth-intro" aria-label="Welcome to EduQuest">
@@ -91,23 +190,23 @@ function Auth({ onLogin }) {
             First name
             <input
               value={form.firstName}
-              onChange={(event) =>
-                setForm({ ...form, firstName: event.target.value })
-              }
+              onChange={(event) => setField('firstName', event.target.value)}
+              aria-invalid={Boolean(fieldErrors.firstName)}
               required
             />
-            {error && <small className="field-error">{error}</small>}
+            {fieldMessage('firstName')}
           </label>
         )}
         {mode === 'register' && (
           <label>
-            Last name (optional)
+            Last name
             <input
               value={form.lastName}
-              onChange={(event) =>
-                setForm({ ...form, lastName: event.target.value })
-              }
+              onChange={(event) => setField('lastName', event.target.value)}
+              aria-invalid={Boolean(fieldErrors.lastName)}
+              required
             />
+            {fieldMessage('lastName')}
           </label>
         )}
         <label>
@@ -115,36 +214,51 @@ function Auth({ onLogin }) {
           <input
             type="email"
             value={form.email}
-            onChange={(event) =>
-              setForm({ ...form, email: event.target.value })
-            }
+            onChange={(event) => setField('email', event.target.value)}
+            aria-invalid={Boolean(fieldErrors.email)}
             required
           />
+          {fieldMessage('email')}
         </label>
         <label>
           Password
-          <input
-            type="password"
-            value={form.password}
-            onChange={(event) =>
-              setForm({ ...form, password: event.target.value })
-            }
-            required
-            minLength="10"
-          />
+          <span className="password-input-wrap">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={form.password}
+              onChange={(event) => setField('password', event.target.value)}
+              aria-invalid={Boolean(fieldErrors.password)}
+              required
+              minLength="10"
+            />
+            <button className="password-toggle" type="button" onClick={() => setShowPassword((visible) => !visible)} aria-label={showPassword ? 'Hide password' : 'Show password'}>
+              {showPassword ? 'Hide' : 'Show'}
+            </button>
+          </span>
+          {mode === 'register' && (
+            <ul className="password-rules" aria-label="Password requirements">
+              {passwordRules.map(([, label, met]) => <li key={label} className={met ? 'met' : 'unmet'}>{met ? '✓' : '○'} {label}</li>)}
+            </ul>
+          )}
+          {fieldMessage('password')}
         </label>
         {mode === 'register' && (
           <>
             <label>
               Confirm password
-              <input
-                type="password"
-                value={form.confirmPassword}
-                onChange={(event) =>
-                  setForm({ ...form, confirmPassword: event.target.value })
-                }
-                required
-              />
+              <span className="password-input-wrap">
+                <input
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  value={form.confirmPassword}
+                  onChange={(event) => setField('confirmPassword', event.target.value)}
+                  aria-invalid={Boolean(fieldErrors.confirmPassword)}
+                  required
+                />
+                <button className="password-toggle" type="button" onClick={() => setShowConfirmPassword((visible) => !visible)} aria-label={showConfirmPassword ? 'Hide confirmation password' : 'Show confirmation password'}>
+                  {showConfirmPassword ? 'Hide' : 'Show'}
+                </button>
+              </span>
+              {fieldMessage('confirmPassword')}
             </label>
             <label>
               Student type
@@ -171,19 +285,6 @@ function Auth({ onLogin }) {
                 <option value={3}>Year 3</option>
               </select>
             </label>
-            <p className="muted">
-              Password strength:{' '}
-              {
-                [
-                  form.password.length >= 10,
-                  /[A-Z]/.test(form.password),
-                  /[a-z]/.test(form.password),
-                  /[0-9]/.test(form.password),
-                  /[^A-Za-z0-9]/.test(form.password),
-                ].filter(Boolean).length
-              }{' '}
-              of 5 rules met
-            </p>
             <p className="muted">Registration creates a student account.</p>
           </>
         )}
@@ -200,7 +301,7 @@ function Auth({ onLogin }) {
         >
           {mode === 'login' ? 'Create an account' : 'I already have an account'}
         </button>
-        {mode === 'login' && error && <p className="field-error">{error}</p>}
+        {error && <p className="form-error" role="alert">{error}</p>}
       </form>
     </main>
   );
