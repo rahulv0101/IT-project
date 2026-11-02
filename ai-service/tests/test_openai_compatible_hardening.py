@@ -67,6 +67,27 @@ def test_local_timeout_defaults_to_300_seconds(monkeypatch):
     assert provider.timeout_seconds == 300
 
 
+def test_actual_request_has_remaining_deadline_and_difficulty_instruction():
+    fake, calls = client([payload()])
+    provider = OpenAICompatibleProvider(fake, base_url="http://localhost:11434/v1/", api_key="k", model="m", sleep=lambda _: None)
+    provider.generate_quiz(QuizRequest(extracted_text="Database indexing speeds up lookups", question_count=1, difficulty="hard"))
+    assert 0 < calls.calls[0]["timeout"] <= provider.timeout_seconds
+    assert "Requested difficulty: hard" in calls.calls[0]["messages"][0]["content"]
+    shape = calls.calls[0]["response_format"]
+    assert shape["type"] == "json_schema"
+    assert shape["json_schema"]["schema"]["properties"]["questions"]["maxItems"] == 1
+
+
+def test_json_fallback_cannot_bypass_request_cap():
+    class Unsupported(Exception):
+        status_code = 400
+    fake, calls = client([Unsupported(), payload()])
+    provider = OpenAICompatibleProvider(fake, base_url="http://localhost:11434/v1/", api_key="k", model="m", max_requests=1, retries=0, sleep=lambda _: None)
+    with pytest.raises(RuntimeError):
+        provider.generate_quiz(request())
+    assert len(calls.calls) == 1
+
+
 def test_timeout_uses_model_fallback():
     timeout = TimeoutError("upstream timeout")
     fake, calls = client([timeout, payload()])

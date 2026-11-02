@@ -1844,6 +1844,10 @@ export function ResourceRow({ resource, lecturer }) {
         </a>
       </div>
       <div className="generation-controls">
+        <p className="muted">
+          Long resources are sampled across the document. Review the generated
+          draft for topic coverage before publishing.
+        </p>
         <label>
           Questions
           <input
@@ -1960,7 +1964,26 @@ export function ResourceRow({ resource, lecturer }) {
           {job.status === 'failed' && (
             <>
               <span className="field-error">
-                Quiz generation failed. Please try again.
+                {{
+                  AI_TIMEOUT:
+                    'The AI took too long. Try fewer questions or a shorter resource.',
+                  AI_PROVIDER_ERROR:
+                    'The AI could not generate a valid quiz. Check the AI service, then try again.',
+                  AI_OUTPUT_TEXT_NOT_ALLOWED:
+                    'The generated quiz did not pass the quality checks. Please try again.',
+                  DOCUMENT_EXTRACTION_FAILED:
+                    'This document could not be read. Try a text-based PDF or a text file.',
+                  DOCUMENT_HAS_NO_TEXT:
+                    'No readable text was found. Scanned PDFs need text recognition before uploading.',
+                  DOCUMENT_TYPE_NOT_SUPPORTED:
+                    'AI generation currently supports PDF and text files. Please upload one of those formats.',
+                  WORKER_TIMEOUT:
+                    'The generation worker stopped before finishing. Please try again.',
+                  QUEUE_TIMEOUT:
+                    'The job waited too long to start. Check that the AI worker is running, then try again.',
+                  CANCELLED: 'Quiz generation was cancelled.',
+                }[job.error_code] ||
+                  'Quiz generation failed. Please try again.'}
               </span>
               <button className="link-button" onClick={retry}>
                 Try again

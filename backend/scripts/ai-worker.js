@@ -1,6 +1,7 @@
 // @ts-nocheck
 import 'dotenv/config';
 import { extractResourceText } from './extract-resource.js';
+import { selectSourceText } from './ai-source.js';
 import { fileURLToPath } from 'node:url';
 import { pool } from '../db.js';
 import { containsProfanity } from '../src/profanity/index.js';
@@ -14,6 +15,11 @@ import { containsProfanity } from '../src/profanity/index.js';
 const aiUrl = process.env.AI_SERVICE_URL || 'http://127.0.0.1:8000';
 const aiServiceToken = process.env.AI_SERVICE_TOKEN || '';
 const maxAttempts = 3;
+const staleRunningMinutes = 15;
+const localModel = /127\.0\.0\.1|localhost/.test(process.env.AI_BASE_URL || '');
+const maxSourceCharacters = Number(
+  process.env.AI_MAX_SOURCE_CHARS || (localModel ? 6000 : 60000),
+);
 const instructionPattern =
   /\b(ignore|follow|obey|disregard)\b.{0,40}\b(instruction|prompt|rule)s?\b|\bsystem prompt\b|\breveal secrets?\b/i;
 
@@ -74,7 +80,14 @@ const claimJob = async () => {
   await pool.query(
     `UPDATE ai_generation_jobs
      SET status='failed', error_code='QUEUE_TIMEOUT', updated_at=now()
-     WHERE status='queued' AND created_at < now() - interval '10 minutes'`,
+     WHERE status='queued' AND updated_at < now() - interval '10 minutes'`,
+  );
+  // Recover a worker that disappeared while an upstream model request was in flight.
+  await pool.query(
+    `UPDATE ai_generation_jobs
+     SET status='failed', error_code='WORKER_TIMEOUT', updated_at=now()
+     WHERE status='running' AND updated_at < now() - ($1 || ' minutes')::interval`,
+    [staleRunningMinutes],
   );
   const client = await pool.connect();
   try {
@@ -104,24 +117,33 @@ const claimJob = async () => {
   }
 };
 
-const processJob = async (job) => {
+export const processJob = async (job) => {
   try {
+    const extractedText = await extractResourceText(job);
+    const sourceText = selectSourceText(extractedText, maxSourceCharacters);
     const response = await fetch(`${aiUrl}/generate-quiz`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         'x-ai-service-token': aiServiceToken,
       },
+      signal: AbortSignal.timeout(
+        Number(process.env.AI_WORKER_TIMEOUT_MS || 360000),
+      ),
       body: JSON.stringify({
-        extracted_text: await extractResourceText(job),
+        extracted_text: sourceText,
         question_count: job.question_count,
         difficulty: job.difficulty,
       }),
     });
-    if (!response.ok) throw new Error('AI_PROVIDER_ERROR');
+    if (!response.ok)
+      throw new Error(
+        response.status === 504 ? 'AI_TIMEOUT' : 'AI_PROVIDER_ERROR',
+      );
     const output = await response.json();
     if (
       !validateAiOutput(output) ||
+      output.questions.length !== job.question_count ||
       containsProfanity(output.title) ||
       output.questions.some(
         (question) =>
@@ -138,6 +160,14 @@ const processJob = async (job) => {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      const active = await client.query(
+        'SELECT status FROM ai_generation_jobs WHERE job_id=$1 FOR UPDATE',
+        [job.job_id],
+      );
+      if (active.rows[0]?.status !== 'running') {
+        await client.query('ROLLBACK');
+        return;
+      }
       const quiz = await client.query(
         `INSERT INTO quizzes(module_id,resource_id,created_by,title,is_competitive,closes_at,status)
          SELECT module_id,$1,$2,$3,$4,$5,'draft' FROM resources WHERE resource_id=$1
@@ -189,12 +219,23 @@ const processJob = async (job) => {
     }
   } catch (error) {
     const nextStatus = job.attempts >= maxAttempts ? 'failed' : 'queued';
+    const errorCode =
+      error.name === 'TimeoutError' || error.name === 'AbortError'
+        ? 'AI_TIMEOUT'
+        : error.message;
     await pool.query(
-      `UPDATE ai_generation_jobs SET status=$1,error_code=$2,updated_at=now() WHERE job_id=$3`,
+      `UPDATE ai_generation_jobs SET status=$1,error_code=$2,updated_at=now() WHERE job_id=$3 AND status='running'`,
       [
         nextStatus,
-        error.message === 'AI_OUTPUT_TEXT_NOT_ALLOWED'
-          ? error.message
+        [
+          'AI_OUTPUT_TEXT_NOT_ALLOWED',
+          'AI_TIMEOUT',
+          'AI_PROVIDER_ERROR',
+          'DOCUMENT_EXTRACTION_FAILED',
+          'DOCUMENT_HAS_NO_TEXT',
+          'DOCUMENT_TYPE_NOT_SUPPORTED',
+        ].includes(errorCode)
+          ? errorCode
           : 'GENERATION_FAILED',
         job.job_id,
       ],

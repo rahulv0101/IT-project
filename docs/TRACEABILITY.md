@@ -273,6 +273,16 @@ The identity slice is covered by 7 identity API tests, 44 frontend authenticatio
 
 ## Study group messaging, announcements and resource sharing
 
+AI generation reliability regression evidence (2026-11-02):
+`backend/tests/extract-resource.test.js` verifies actual PDF text extraction;
+`backend/tests/ai-source-limits.test.js` verifies bounded source excerpts;
+`backend/tests/ai-worker.test.js` verifies count enforcement, old-job retries,
+orphan expiry, and cancellation before persistence;
+`ai-service/tests/test_openai_compatible_hardening.py` verifies schema-constrained
+local requests, remaining deadlines, and request-cap enforcement on fallback;
+`frontend/src/main.test.jsx` verifies safe timeout/document-failure guidance.
+Live results and coverage limitations are recorded in `docs/AI_PDF_DIAGNOSIS.md`.
+
 | Requirement                                                             | Status    | Evidence                                                                                             |
 | ----------------------------------------------------------------------- | --------- | ---------------------------------------------------------------------------------------------------- |
 | Member-only chat, lecturer read-only access, replies, edit/delete rules | automated | `backend/src/groups/messaging.js`, `backend/tests/group-messaging-api.test.js`                       |

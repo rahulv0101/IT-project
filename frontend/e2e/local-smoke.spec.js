@@ -31,6 +31,10 @@ test('seeded lecturer logs in, generates a quiz and publishes it', async ({
   await expect(resource.getByText('Generated draft')).toBeVisible({
     timeout: 20000,
   });
+  await expect(
+    resource.getByText(/Long resources are sampled across the document/),
+  ).toBeVisible();
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await resource
     .getByLabel('Quiz title', { exact: true })
     .fill(`Browser smoke ${test.info().project.name}`);

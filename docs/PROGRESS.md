@@ -285,3 +285,18 @@ Remaining before FR-23 can be marked done: frontend screen, seed fixture, Playwr
 ### Manual quiz authoring slice
 
 Added the additive quiz authoring schema migration, shared strict validation, lecturer-only draft/publish/question routes, and a lecturer create-quiz form. Remaining: complete behavioural route assertions for destructive-route fixtures, short-answer submission integration, full authoring editor/preview polish, frontend component tests, and Playwright/axe coverage.
+
+## 2026-11-02 — AI PDF generation follow-up (incomplete gate)
+
+Fixed bounded source sampling, request deadlines, strict question-count checks,
+cancellation persistence, stale-job expiry and safe lecturer failure guidance.
+Tests: unit 138/138, frontend components 90/90, standalone database/API 328/328,
+Python 51/51, focused MockProvider browser/axe 6/6; zero skipped and zero axe
+violations. Lint, format, type-check and build passed.
+
+The final combined suite crashed during database startup with Windows native
+exit 3221226505 after its unit/component phase passed. The standalone DB pass
+does not prove that crash resolved. Live five-question PDF generation still
+times out (HTTP 504); no draft was saved. Further repeated live and native-crash
+retries were stopped. Remaining work is diagnosed honestly in
+`docs/AI_PDF_DIAGNOSIS.md`; FR generation is not declared complete.

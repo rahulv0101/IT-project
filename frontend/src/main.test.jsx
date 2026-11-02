@@ -1822,6 +1822,50 @@ describe('frontend authentication and role routing', () => {
     );
   });
 
+  it.each([
+    [
+      'AI_TIMEOUT',
+      'The AI took too long. Try fewer questions or a shorter resource.',
+    ],
+    [
+      'DOCUMENT_EXTRACTION_FAILED',
+      'This document could not be read. Try a text-based PDF or a text file.',
+    ],
+    ['untrusted server detail', 'Quiz generation failed. Please try again.'],
+  ])('shows safe generation guidance for %s', async (errorCode, message) => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          response({ configured: true, reachable: true, provider: 'mock' }),
+        )
+        .mockResolvedValueOnce(
+          response({
+            job: {
+              job_id: 'failed-guidance',
+              status: 'failed',
+              error_code: errorCode,
+            },
+          }),
+        ),
+    );
+    render(
+      <ResourceRow
+        lecturer
+        resource={{
+          resource_id: 'guidance',
+          title: 'Notes',
+          resource_type: 'pdf',
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Generate quiz' }));
+    expect(await screen.findByText(message)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
+    expect(screen.queryByText('untrusted server detail')).toBeNull();
+  });
+
   it('renders Infected cards without answers, then chooses and answers correctly', async () => {
     const fetchMock = vi
       .fn()

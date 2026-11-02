@@ -144,6 +144,22 @@
 - The reminder worker runs once per minute. For a session that enters both reminder windows after downtime, it may produce both the 24-hour and one-hour reminders; unique `(user, dedup_key)` prevents repeats after a restart.
 - Calendar downloads use a minimal escaped RFC 5545 representation. They contain no remote resources, invitation addresses or user data beyond the session’s own public-to-group fields.
 
+## Local AI generation correction (2026-11-02)
+
+- Local generation uses three source excerpts across long documents, capped at
+  6,000 characters by default (60,000 for hosted providers). The UI discloses
+  sampling; lecturers must review coverage. This does not claim coverage of all
+  208 pages of a long upload. `AI_MAX_SOURCE_CHARS` is configurable.
+- Use the installed 1B model on the present 8 GB PC, per the earlier low-memory
+  model decision. Keep the configured real provider; never substitute mock output.
+- Local structured JSON derives from the quiz Pydantic schema. Invalid responses
+  remain invalid; exact requested question count is also enforced before saving.
+- Align the default local service timeout with the 300-second provider budget;
+  use a bounded six-minute worker request and expire orphaned jobs after 15 minutes.
+  Retrying an old job resets its waiting period via updated_at, not created_at.
+- Cancellation is authoritative: check the job status under a row lock before
+  creating a draft, and never revive a cancelled job in the failure handler.
+
 ## Group messaging and resource sharing
 
 - Group messages are plain text. React renders message bodies as text nodes; the only automatic links are `https:` URLs with `noopener noreferrer` and `_blank`. HTML and Markdown are never interpreted.

@@ -33,7 +33,10 @@ const mockAi = (output) => {
   );
 };
 
-const createJob = async (bodyText) => {
+const createJob = async (
+  bodyText,
+  { status = 'queued', updatedAt = new Date().toISOString() } = {},
+) => {
   const file = `${process.cwd()}/uploads/worker-${Date.now()}-${Math.random()}.txt`;
   await writeFile(file, bodyText);
   const moduleRow = (
@@ -56,8 +59,8 @@ const createJob = async (bodyText) => {
   resource = resourceRow;
   return (
     await pool.query(
-      `INSERT INTO ai_generation_jobs(requested_by,resource_id) VALUES($1,$2) RETURNING job_id`,
-      [lecturer, resourceRow.resource_id],
+      `INSERT INTO ai_generation_jobs(requested_by,resource_id,question_count,status,updated_at) VALUES($1,$2,1,$3,$4) RETURNING job_id`,
+      [lecturer, resourceRow.resource_id, status, updatedAt],
     )
   ).rows[0].job_id;
 };
@@ -186,5 +189,80 @@ describe('persistent AI worker', () => {
     expect(job.status).toBe('failed');
     expect(job.attempts).toBe(3);
     expect(job.quiz_id).toBeNull();
+  });
+
+  it('refuses a different question count and recovers stale running jobs', async () => {
+    mockAi(validOutput);
+    const staleId = await createJob('Database notes', {
+      status: 'running',
+      updatedAt: new Date(Date.now() - 16 * 60 * 1000).toISOString(),
+    });
+    const wrongCountId = await createJob('Database notes');
+    await pool.query(
+      'UPDATE ai_generation_jobs SET question_count=5 WHERE job_id=$1',
+      [wrongCountId],
+    );
+    await once();
+    const stale = (
+      await pool.query(
+        'SELECT status,error_code FROM ai_generation_jobs WHERE job_id=$1',
+        [staleId],
+      )
+    ).rows[0];
+    expect(stale).toEqual({ status: 'failed', error_code: 'WORKER_TIMEOUT' });
+    const wrong = (
+      await pool.query(
+        'SELECT status,quiz_id FROM ai_generation_jobs WHERE job_id=$1',
+        [wrongCountId],
+      )
+    ).rows[0];
+    expect(wrong.status).toBe('queued');
+    expect(wrong.quiz_id).toBeNull();
+    await once();
+    await once();
+  });
+
+  it('picks up a retried old job using the current queue timestamp', async () => {
+    mockAi(validOutput);
+    const jobId = await createJob('Database notes');
+    await pool.query(
+      "UPDATE ai_generation_jobs SET created_at=now()-interval '1 day',updated_at=now() WHERE job_id=$1",
+      [jobId],
+    );
+    await once();
+    expect(
+      (
+        await pool.query(
+          'SELECT status FROM ai_generation_jobs WHERE job_id=$1',
+          [jobId],
+        )
+      ).rows[0].status,
+    ).toBe('succeeded');
+  });
+
+  it('does not save a quiz or revive a job cancelled during generation', async () => {
+    const jobId = await createJob('Database source');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        await pool.query(
+          "UPDATE ai_generation_jobs SET status='failed',error_code='CANCELLED' WHERE job_id=$1",
+          [jobId],
+        );
+        return { ok: true, json: async () => validOutput };
+      }),
+    );
+    await once();
+    const job = (
+      await pool.query(
+        'SELECT status,error_code,quiz_id FROM ai_generation_jobs WHERE job_id=$1',
+        [jobId],
+      )
+    ).rows[0];
+    expect(job).toEqual({
+      status: 'failed',
+      error_code: 'CANCELLED',
+      quiz_id: null,
+    });
   });
 });

@@ -69,3 +69,9 @@ def test_token_never_appears_in_logs_or_errors(monkeypatch, caplog):
 def test_openapi_is_available_only_in_development():
     assert app.app.docs_url == "/docs"
     assert app.app.openapi_url == "/openapi.json"
+
+
+def test_local_model_uses_long_whole_request_timeout(monkeypatch):
+    monkeypatch.delenv("AI_REQUEST_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.setenv("AI_BASE_URL", "http://127.0.0.1:11434/v1/")
+    assert app.request_timeout_seconds() == 300
