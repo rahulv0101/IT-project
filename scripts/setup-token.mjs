@@ -1,40 +1,47 @@
 import { randomBytes, randomInt } from 'node:crypto';
-import { appendFile, readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { parse } from 'dotenv';
 
 const envPath = path.resolve(process.env.ENV_FILE || '.env');
 const alphabet =
   'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-
 function createToken(length = 48) {
   return Array.from(
     { length },
     () => alphabet[randomInt(alphabet.length)],
   ).join('');
 }
-
-const contents = await readFile(envPath, 'utf8').catch(() => '');
-const existing = contents
-  .match(/^AI_SERVICE_TOKEN\s*=\s*(\S.*)$/m)?.[1]
-  ?.trim();
-
-if (!existing) {
-  const token = createToken();
-  const prefix = contents.length > 0 && !contents.endsWith('\n') ? '\n' : '';
-  await appendFile(envPath, `${prefix}AI_SERVICE_TOKEN=${token}\n`, 'utf8');
-  console.log('AI_SERVICE_TOKEN=created');
-} else {
-  console.log('AI_SERVICE_TOKEN=present');
+let contents = await readFile(envPath, 'utf8').catch(() => '');
+const values = parse(contents);
+/** @param {string} key @param {string} value */
+function setValue(key, value) {
+  const pattern = new RegExp(`^[ \\t]*${key}[ \\t]*=.*$`, 'm');
+  contents = pattern.test(contents)
+    ? contents.replace(pattern, `${key}=${value}`)
+    : contents +
+      (contents && !contents.endsWith('\n') ? '\n' : '') +
+      `${key}=${value}\n`;
 }
-
-const refreshed = await readFile(envPath, 'utf8');
-if (!/^MFA_ENCRYPTION_KEY\s*=\s*\S+/m.test(refreshed)) {
-  await appendFile(
-    envPath,
-    `MFA_ENCRYPTION_KEY=${randomBytes(32).toString('hex')}\n`,
-    'utf8',
-  );
+if (
+  !values.AI_SERVICE_TOKEN ||
+  values.AI_SERVICE_TOKEN === 'generate-a-long-random-token'
+) {
+  setValue('AI_SERVICE_TOKEN', createToken());
+  console.log('AI_SERVICE_TOKEN=created');
+} else console.log('AI_SERVICE_TOKEN=present');
+const mfaKey = values.MFA_ENCRYPTION_KEY;
+if (!mfaKey || mfaKey.startsWith('generate-a-')) {
+  setValue('MFA_ENCRYPTION_KEY', randomBytes(32).toString('hex'));
   console.log('MFA_ENCRYPTION_KEY=created');
 } else {
+  if (
+    !/^[0-9a-f]{64}$/i.test(mfaKey) &&
+    Buffer.from(mfaKey, 'base64').length !== 32
+  )
+    throw new Error(
+      'MFA_ENCRYPTION_KEY must be a 32-byte key. Restore the existing key; setup will not rotate it.',
+    );
   console.log('MFA_ENCRYPTION_KEY=present');
 }
+await writeFile(envPath, contents, { mode: 0o600 });

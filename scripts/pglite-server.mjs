@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { PGlite } from '@electric-sql/pglite';
 import { PGLiteSocketServer } from '@electric-sql/pglite-socket';
 import pg from 'pg';
+import { ensureLocalDatabaseEnv } from './local-env.mjs';
 
 const { Client } = pg;
 const root = process.cwd();
@@ -16,13 +17,13 @@ const dataRoot = path.join(root, '.pgdata');
 const scriptPath = fileURLToPath(import.meta.url);
 const configs = {
   dev: {
-    port: 5432,
+    port: Number(process.env.PGLITE_DEV_PORT ?? 5432),
     database: 'eduquest',
     dir: path.join(dataRoot, 'dev'),
     pid: path.join(root, '.pglite-dev.pid'),
   },
   test: {
-    port: 5433,
+    port: Number(process.env.PGLITE_TEST_PORT ?? 5433),
     database: 'eduquest_test',
     dir: path.join(dataRoot, 'test'),
     pid: path.join(root, '.pglite-test.pid'),
@@ -48,19 +49,10 @@ function errorText(error) {
 }
 
 async function writeEnv() {
-  if (existsSync(envPath))
-    return (await readFile(envPath, 'utf8'))
-      .split(/\r?\n/)
-      .filter((line) => /^[A-Z_]+=/.test(line))
-      .map((line) => line.split('=')[0]);
-  const lines = [
-    'DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/eduquest?sslmode=disable',
-    'TEST_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5433/eduquest_test?sslmode=disable',
-    'PGLITE_DEV_PORT=5432',
-    'PGLITE_TEST_PORT=5433',
-  ];
-  await writeFile(envPath, `${lines.join('\n')}\n`, 'utf8');
-  return lines.map((line) => line.split('=')[0]);
+  return ensureLocalDatabaseEnv(envPath, {
+    devPort: configs.dev.port,
+    testPort: configs.test.port,
+  });
 }
 
 async function waitFor(port, database) {

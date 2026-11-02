@@ -1,5 +1,8 @@
 # Verification run — 2026-10-27
 
+For current evidence, read [the 2 November 2026 system sweep](VALIDATION_2026-11-02.md).
+The records below are historical.
+
 Variable names were checked without printing values. Present names: `DATABASE_URL`, `TEST_DATABASE_URL`, `PGLITE_DEV_PORT`, `PGLITE_TEST_PORT`. Missing names: `REAL_TEST_DATABASE_URL`, `ANTHROPIC_API_KEY`. Chromium and Firefox Playwright browsers are installed.
 
 | Step                                               | Result                            | Evidence                                                                                                                                                                                                                                              |

@@ -131,6 +131,48 @@ describe('student module and resource catalogue API', () => {
     });
   });
 
+  it('rejects missing and oversized upload titles without hanging or saving a resource', async () => {
+    const before = (
+      await pool.query('SELECT count(*)::int AS total FROM resources')
+    ).rows[0].total;
+    for (const title of ['', 'x'.repeat(201)]) {
+      const result = await lecturerAgent
+        .post(`/api/v1/modules/${ownModule.module_id}/resources`)
+        .field('title', title)
+        .attach('file', Buffer.from('%PDF-1.4\nNotes\n%%EOF'), 'notes.pdf')
+        .timeout({ deadline: 5000 });
+      expect(result.status).toBe(422);
+    }
+    expect(
+      (await pool.query('SELECT count(*)::int AS total FROM resources')).rows[0]
+        .total,
+    ).toBe(before);
+  });
+
+  it('rejects unsupported document generation before queueing a paid job', async () => {
+    const resource = await pool.query(
+      `INSERT INTO resources(uploaded_by,module_id,title,resource_type,file_location,file_size_bytes)
+      VALUES($1,$2,'Office document','docx','not-read.docx',10) RETURNING resource_id`,
+      [lecturer, ownModule.module_id],
+    );
+    const result = await lecturerAgent
+      .post(`/api/v1/resources/${resource.rows[0].resource_id}/generation-jobs`)
+      .send({ questionCount: 5, quizMode: 'practice' });
+    expect(result.status).toBe(422);
+    expect(result.body.error.code).toBe('DOCUMENT_TYPE_NOT_SUPPORTED');
+    expect(
+      (
+        await pool.query(
+          'SELECT count(*)::int AS total FROM ai_generation_jobs WHERE resource_id=$1',
+          [resource.rows[0].resource_id],
+        )
+      ).rows[0].total,
+    ).toBe(0);
+    await pool.query('DELETE FROM resources WHERE resource_id=$1', [
+      resource.rows[0].resource_id,
+    ]);
+  });
+
   afterAll(async () => {
     await pool.query(
       'DELETE FROM resources WHERE module_id = ANY($1::uuid[])',

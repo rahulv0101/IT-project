@@ -10,7 +10,7 @@ if (!testUrl) {
 }
 
 process.env.DATABASE_URL = testUrl;
-process.env.PG_POOL_MAX = '1';
+process.env.PG_POOL_MAX ||= '1';
 
 const { pool } = await import('../../db.js');
 

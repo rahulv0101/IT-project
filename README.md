@@ -9,6 +9,13 @@ Quiz generation uses OpenRouter with Claude Haiku 5.5. See
 
 ## Local development
 
+After installing dependencies and the Python requirements, `npm start` runs
+token setup, database startup, migrations, demo seeding and the app stack on
+macOS, Linux or Windows. `npm start -- --dry-run` lists these steps without
+starting them. Python is resolved from `PYTHON_EXECUTABLE`, `.venv`, or PATH.
+`npm run test:python` runs the complete offline Python suite through that same
+interpreter. See `docs/OPENROUTER.md` for virtual-environment setup.
+
 Requirements: Node.js 22+ and Python 3.11+. PostgreSQL-compatible PGlite runs locally through the normal `pg` driver; no system database installation is required.
 
 ```powershell

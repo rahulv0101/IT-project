@@ -1,5 +1,9 @@
 # EduQuest traceability
 
+Latest system-wide evidence: [2 November 2026 validation](VALIDATION_2026-11-02.md).
+That report supersedes historical pending status for the tested PostgreSQL,
+OpenRouter, native backup and account-flow checks below.
+
 Status reflects the current local implementation. PGlite evidence is explicitly not equivalent to real PostgreSQL concurrency evidence.
 
 ## Games chooser

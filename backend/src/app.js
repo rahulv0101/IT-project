@@ -467,7 +467,9 @@ const registerSchema = z
     path: ['firstName'],
   })
   .refine(
-    (data) => !data.confirmPassword || data.password === data.confirmPassword,
+    (data) =>
+      data.confirmPassword === undefined ||
+      data.password === data.confirmPassword,
     {
       message: 'Passwords do not match.',
       path: ['confirmPassword'],
@@ -2263,7 +2265,20 @@ app.post(
         );
       }
       const title = String(req.body.title || '').trim();
-      if (!title || !visibleText('resourceTitle', req, res, title)) return;
+      if (!title || title.length > 200) {
+        await unlink(req.file.path).catch(() => {});
+        return error(
+          res,
+          422,
+          'VALIDATION_ERROR',
+          'Resource title must be between 1 and 200 characters.',
+          requestId(req),
+        );
+      }
+      if (!visibleText('resourceTitle', req, res, title)) {
+        await unlink(req.file.path).catch(() => {});
+        return;
+      }
       const owner = await pool.query(
         'SELECT 1 FROM modules WHERE module_id=$1 AND lecturer_id=$2',
         [req.params.moduleId, req.user.userId],
@@ -3191,7 +3206,7 @@ app.post(
   async (req, res, next) => {
     try {
       const resource = await pool.query(
-        'SELECT r.resource_id,r.title FROM resources r JOIN modules m ON m.module_id=r.module_id WHERE r.resource_id=$1 AND m.lecturer_id=$2',
+        'SELECT r.resource_id,r.title,r.resource_type FROM resources r JOIN modules m ON m.module_id=r.module_id WHERE r.resource_id=$1 AND m.lecturer_id=$2',
         [req.params.resourceId, req.user.userId],
       );
       if (!resource.rowCount)
@@ -3200,6 +3215,14 @@ app.post(
           404,
           'NOT_FOUND',
           'Resource not found.',
+          requestId(req),
+        );
+      if (!['pdf', 'txt', 'md'].includes(resource.rows[0].resource_type))
+        return error(
+          res,
+          422,
+          'DOCUMENT_TYPE_NOT_SUPPORTED',
+          'AI generation supports PDF and text files. Convert this document to a text-based PDF first.',
           requestId(req),
         );
       const options = parse(

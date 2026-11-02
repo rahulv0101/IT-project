@@ -1,4 +1,17 @@
 import { defineConfig, devices } from '@playwright/test';
+import { mkdirSync } from 'node:fs';
+import path from 'node:path';
+
+// Firefox 157 still resolves shared app data outside its temporary profile.
+// On macOS, isolate that data as well; never request access to a user's profile.
+// https://github.com/microsoft/playwright/issues/42768
+const firefoxAppDataRoot = path.resolve('.pgdata/firefox-app-data');
+if (process.platform === 'darwin')
+  mkdirSync(firefoxAppDataRoot, { recursive: true });
+const firefoxLaunchOptions =
+  process.platform === 'darwin'
+    ? { env: { CFFIXED_USER_HOME: firefoxAppDataRoot } }
+    : {};
 
 process.env.DATABASE_URL =
   'postgres://postgres:postgres@127.0.0.1:55436/eduquest_e2e?sslmode=disable';
@@ -65,6 +78,7 @@ export default defineConfig({
       name: 'firefox-mobile',
       use: {
         ...devices['Desktop Firefox'],
+        launchOptions: firefoxLaunchOptions,
         viewport: { width: 390, height: 844 },
       },
     },
@@ -72,6 +86,7 @@ export default defineConfig({
       name: 'firefox-tablet',
       use: {
         ...devices['Desktop Firefox'],
+        launchOptions: firefoxLaunchOptions,
         viewport: { width: 768, height: 1024 },
       },
     },
@@ -79,6 +94,7 @@ export default defineConfig({
       name: 'firefox-desktop',
       use: {
         ...devices['Desktop Firefox'],
+        launchOptions: firefoxLaunchOptions,
         viewport: { width: 1280, height: 900 },
       },
     },

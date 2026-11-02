@@ -1,19 +1,26 @@
 import 'dotenv/config';
-import { spawn } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 
-if (!process.env.REAL_TEST_DATABASE_URL)
+const url = process.env.REAL_TEST_DATABASE_URL;
+if (!url)
   throw new Error(
     'REAL_TEST_DATABASE_URL is required for real PostgreSQL verification',
   );
-const child = spawn(
-  process.platform === 'win32' ? 'npx.cmd' : 'npx',
-  ['vitest', 'run', 'backend/tests/database.invariants.test.js'],
-  {
-    stdio: 'inherit',
-    env: {
-      ...process.env,
-      TEST_DATABASE_URL: process.env.REAL_TEST_DATABASE_URL,
-    },
-  },
-);
-child.on('exit', (code) => process.exit(code ?? 1));
+if (url === process.env.DATABASE_URL)
+  throw new Error('Real database tests refuse the development database');
+const env = { ...process.env, DATABASE_URL: url, TEST_DATABASE_URL: url };
+for (const args of [
+  ['backend/scripts/migrate.js'],
+  [
+    'node_modules/vitest/vitest.mjs',
+    'run',
+    '--config',
+    'vitest.real.config.js',
+  ],
+]) {
+  const result = spawnSync(process.execPath, args, { env, stdio: 'inherit' });
+  if (result.status !== 0) {
+    process.exitCode = result.status ?? 1;
+    break;
+  }
+}

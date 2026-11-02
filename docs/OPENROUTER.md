@@ -67,6 +67,12 @@ API keys or put them in browser configuration.
 
 ## Verified on 2026-11-02
 
+`npm run test:ai:real` now exercises the actual paid integration on an isolated
+temporary database: PDF upload, extraction, eight real-model questions,
+transactional persistence, publication, student enrolment and submission with
+the expected score. This check passed with Haiku 5.5 in 29.247 seconds. It uses a
+small purpose-built PDF; it does not prove coverage or quality for a large document.
+
 A real eight-question request through FastAPI returned HTTP 200 in 25.55 seconds
 with exactly eight questions using the configured Haiku model. It used the
 bundled database text fixture; full-PDF coverage, human review and database

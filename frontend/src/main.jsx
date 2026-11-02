@@ -115,10 +115,8 @@ function Auth({ onLogin }) {
           A LITTLE CURIOSITY. A LOT OF POSSIBILITY.
         </span>
         <h2>
-          Your next
-          <br />
-          lightbulb moment
-          <br />
+          Your next <br />
+          lightbulb moment <br />
           <em>starts here.</em>
         </h2>
         <p>
@@ -476,7 +474,7 @@ export function App() {
             {item}
           </button>
         ))}
-        <button className="nav logout" onClick={logout}>
+        <button className="nav logout" aria-label="Log out" onClick={logout}>
           Log out
         </button>
       </aside>
@@ -646,10 +644,15 @@ export function App() {
 
 // ── Shared request-state helpers ───────────────────────────────────────────
 function useData(path) {
-  const [state, setState] = useState({ loading: true, error: '', data: [] });
+  const [state, setState] = useState({
+    loading: true,
+    error: '',
+    data: [],
+    path,
+  });
   useEffect(() => {
     if (!path) {
-      setState({ loading: false, error: '', data: [] });
+      setState({ loading: false, error: '', data: [], path });
       return undefined;
     }
     let live = true;
@@ -662,21 +665,30 @@ function useData(path) {
             error: '',
             ...body,
             data: body.data || body.weakTopics || [],
+            path,
           }),
       )
       .catch(
         (reason) =>
-          live && setState({ loading: false, error: reason.message, data: [] }),
+          live &&
+          setState({ loading: false, error: reason.message, data: [], path }),
       );
     return () => {
       live = false;
     };
   }, [path]);
-  return state;
+  return state.path === path
+    ? state
+    : { loading: Boolean(path), error: '', data: [] };
 }
 function State({ state, empty = 'Nothing here yet.' }) {
   if (state.loading) return <p className="muted">Loading…</p>;
-  if (state.error) return <p className="field-error" role="alert">{state.error}</p>;
+  if (state.error)
+    return (
+      <p className="field-error" role="alert">
+        {state.error}
+      </p>
+    );
   if (!state.data.length) return <p className="empty-state">{empty}</p>;
   return null;
 }
@@ -1902,7 +1914,13 @@ export function ResourceRow({ resource, lecturer }) {
   const [now, setNow] = useState(Date.now());
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [requesting, setRequesting] = useState(false);
+  const generationSupported = ['pdf', 'txt', 'md'].includes(
+    resource.resource_type?.toLowerCase(),
+  );
   const generate = async () => {
+    if (requesting || ['queued', 'running'].includes(job?.status)) return;
+    setRequesting(true);
     setError('');
     setQuiz(null);
     try {
@@ -1922,6 +1940,8 @@ export function ResourceRow({ resource, lecturer }) {
       setJob(body.job);
     } catch (reason) {
       setError(reason.message);
+    } finally {
+      setRequesting(false);
     }
   };
   useEffect(() => {
@@ -1953,19 +1973,28 @@ export function ResourceRow({ resource, lecturer }) {
     };
   }, [job?.job_id, job?.status]);
   const cancel = async () => {
-    const body = await api(`/ai-generation-jobs/${job.job_id}/cancel`, {
-      method: 'POST',
-      body: JSON.stringify({}),
-    });
-    setJob(body.job);
+    try {
+      const body = await api(`/ai-generation-jobs/${job.job_id}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      setJob(body.job);
+      setError('');
+    } catch (reason) {
+      setError(reason.message);
+    }
   };
   const retry = async () => {
-    const body = await api(`/ai-generation-jobs/${job.job_id}/retry`, {
-      method: 'POST',
-      body: JSON.stringify({}),
-    });
-    setJob(body.job);
-    setError('');
+    try {
+      const body = await api(`/ai-generation-jobs/${job.job_id}/retry`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      setJob(body.job);
+      setError('');
+    } catch (reason) {
+      setError(reason.message);
+    }
   };
   const publish = async (event) => {
     event.preventDefault();
@@ -2101,12 +2130,21 @@ export function ResourceRow({ resource, lecturer }) {
         <button
           className="primary"
           onClick={generate}
-          disabled={Boolean(
-            aiStatus && (!aiStatus.configured || !aiStatus.reachable),
-          )}
+          disabled={
+            requesting ||
+            ['queued', 'running'].includes(job?.status) ||
+            !generationSupported ||
+            Boolean(aiStatus && (!aiStatus.configured || !aiStatus.reachable))
+          }
         >
           Generate quiz
         </button>
+        {!generationSupported && (
+          <p className="muted">
+            AI generation supports PDF and text files. Convert this document to
+            a text-based PDF to generate a quiz.
+          </p>
+        )}
       </div>
       {job && (
         <p className="job-status" aria-live="polite">
@@ -2565,13 +2603,13 @@ export function Groups({ user, onSession }) {
 function Leaderboard({ user }) {
   const modules = useData('/modules');
   const [moduleId, setModuleId] = useState('');
-  const state = useData(
-    moduleId ? `/modules/${moduleId}/leaderboard` : '/modules',
-  );
+  const state = useData(moduleId ? `/modules/${moduleId}/leaderboard` : null);
   return (
     <section className="card">
       <h2>Leaderboard</h2>
+      <label htmlFor="leaderboard-module">Module</label>
       <select
+        id="leaderboard-module"
         value={moduleId}
         onChange={(event) => setModuleId(event.target.value)}
       >
@@ -2605,15 +2643,15 @@ function Leaderboard({ user }) {
 function Analytics({ user }) {
   const modules = useData('/modules');
   const [moduleId, setModuleId] = useState('');
-  const state = useData(
-    moduleId ? `/modules/${moduleId}/analytics` : '/modules',
-  );
+  const state = useData(moduleId ? `/modules/${moduleId}/analytics` : null);
   if (user.role !== 'lecturer')
     return <p className="field-error">You do not have access to analytics.</p>;
   return (
     <section className="card">
       <h2>Analytics</h2>
+      <label htmlFor="analytics-module">Module</label>
       <select
+        id="analytics-module"
         value={moduleId}
         onChange={(event) => setModuleId(event.target.value)}
       >
@@ -2624,7 +2662,11 @@ function Analytics({ user }) {
           </option>
         ))}
       </select>
-      <State state={state} empty="No scored data yet." />
+      {moduleId ? (
+        <State state={state} empty="No scored data yet." />
+      ) : (
+        <p className="empty-state">Choose a module to view analytics.</p>
+      )}
       {state.data.map((topic) => (
         <div className="list-row" key={topic.topic_id}>
           <span>{topic.name}</span>
@@ -3537,7 +3579,9 @@ export function Quizzes({
         Published quizzes are loaded from the API. AI generation progress is
         reported by the job status endpoint.
       </p>
+      <label htmlFor="quizzes-module">Module</label>
       <select
+        id="quizzes-module"
         value={moduleId}
         onChange={(event) => {
           setModuleId(event.target.value);
@@ -5476,8 +5520,7 @@ export function ProfilePage({ user, onUserChange }) {
           ? `Recovery codes: ${body.recoveryCodes.join(', ')}`
           : body.message || 'MFA updated.',
       );
-      if (path === '/mfa/disable')
-      {
+      if (path === '/mfa/disable') {
         setData((current) => ({
           ...current,
           profile: { ...current.profile, mfa_enabled: false },

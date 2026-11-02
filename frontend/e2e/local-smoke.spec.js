@@ -284,7 +284,8 @@ test('profile page edits identity and languages with an accessible layout', asyn
   await expect(page.getByRole('alert')).toBeVisible();
   await expectAccessible();
   await page.getByLabel('First name').fill('Demo');
-  await page.getByLabel('Python').check();
+  const python = page.getByLabel('Python');
+  await python.setChecked(!(await python.isChecked()));
   await expect(page.getByText('You have unsaved changes.')).toBeVisible();
   await expectAccessible();
   await page.getByRole('button', { name: 'Save profile' }).click();

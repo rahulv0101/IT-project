@@ -26,6 +26,7 @@ export default defineConfig({
     maxWorkers: 4,
     minWorkers: 1,
     exclude: [
+      'backend/tests/real-db-concurrency.test.js',
       'backend/tests/study-groups-api.test.js',
       '**/node_modules/**',
       '**/dist/**',

@@ -1,5 +1,34 @@
 # Decisions
 
+## 2026-11-02 — System validation and account-flow repairs
+
+- Treat a blank optional registration surname as absent. Return field validation
+  messages alongside the standard safe API error and show a global form alert.
+- Complete browser email verification, MFA enrolment/confirmation, MFA challenge
+  login and recovery-code actions. Profile loading failures are visible, and the
+  dirty flag compares equivalent form snapshots.
+- Keep hosted AI validation strict. Prevent duplicate in-flight UI generation
+  requests and reject unsupported Office generation before creating a paid job.
+  Office files remain available as downloadable teaching resources.
+- Use a project Python 3.11+ interpreter consistently. Portable launchers resolve
+  the checkout rather than a specific user's Windows desktop. Unit test workers
+  are bounded; normal JavaScript runs allocate an independent database port.
+- Enable actual ESLint JavaScript/React rules. Browser sweeps cover registration,
+  verification, MFA and every student/lecturer/admin navigation destination.
+- JSON backup uses one repeatable-read snapshot. Restore validates table/column
+  metadata, orders parent records before children, binds values by column name,
+  serializes JSON explicitly and preserves user-trigger states transactionally.
+  Foreign keys remain active; deferred turn/card references are checked at commit.
+  Backup validation uses seeded data, compares all 44 tables, exercises rollback
+  on an invalid reference, and checks repeated-seed safety.
+- Validate the same API suite on disposable PostgreSQL as well as PGlite. The
+  real-database gate uses a multi-connection pool and adds simultaneous attempt,
+  submission and conflicting-option tests; it rejects the configured development
+  URL. Native and JSON restore checks were exercised on PostgreSQL 16.15.
+- Replace the misleading offline `test:ai:real` fixture invocation with a bounded,
+  explicit paid PDF-upload-to-generation-to-publish-to-student-submit check on a
+  temporary database. This does not establish full coverage of arbitrary PDFs.
+
 ## 2026-11-02 — OpenRouter quiz generation
 
 - Switch the local environment and example configuration to OpenRouter's

@@ -313,12 +313,14 @@ describe('Games chooser', () => {
       await screen.findByRole('heading', { name: 'Choose a quiz' }),
     ).toBeTruthy();
     expect(screen.getAllByText('Resume').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByRole('button', { name: 'Continue' })).toBeTruthy();
+    expect(
+      await screen.findByRole('button', { name: 'Continue' }),
+    ).toBeTruthy();
     fireEvent.change(screen.getByLabelText('Search quizzes'), {
       target: { value: 'Resume' },
     });
     expect(screen.getByDisplayValue('Resume')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }));
     expect(onStartGame).toHaveBeenCalledWith('infected', 'q1');
   });
 });
@@ -603,7 +605,7 @@ describe('Boss Battle frontend', () => {
     expect(
       screen.getByText('B-tree indexes support ordered lookups.'),
     ).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }));
     expect(screen.getByText('Next boss question?')).toBeTruthy();
     expect(screen.getByText('75%', { selector: 'span' })).toBeTruthy();
   });
@@ -1488,7 +1490,7 @@ describe('Island Escape solo game', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Submit answer' }));
     expect(await screen.findByText('Your tools were lost')).toBeTruthy();
     expect(screen.getByText('2 retries remain.')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }));
     expect(await screen.findByText(islandQuestion.questionText)).toBeTruthy();
     expect(screen.getByText(/Wrong answers 0 of 5/)).toBeTruthy();
   });
@@ -1944,7 +1946,7 @@ describe('frontend authentication and role routing', () => {
     await screen.findByText('Correct');
     expect(screen.getByText(/Cure 30% · Infection 70%/)).toBeTruthy();
     expect(screen.getByText(/3 of 3 hearts/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }));
     expect(
       screen.getByRole('button', { name: /easy card about keys/i }),
     ).toBeTruthy();
