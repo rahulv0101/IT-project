@@ -10,6 +10,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   App,
+  EmailCodeVerification,
   BossBattleGame,
   InfectedGame,
   IslandEscapeGame,
@@ -1615,7 +1616,7 @@ describe('frontend authentication and role routing', () => {
     fireEvent.change(screen.getByLabelText('First name'), {
       target: { value: 'Ada' },
     });
-    fireEvent.change(screen.getByLabelText('Last name (optional)'), {
+    fireEvent.change(screen.getByLabelText('Last name'), {
       target: { value: 'Lovelace' },
     });
     fireEvent.change(screen.getByLabelText('Email'), {
@@ -1650,7 +1651,9 @@ describe('frontend authentication and role routing', () => {
       screen.getByRole('button', { name: 'Register' }).closest('form'),
     );
     await waitFor(() =>
-      expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeTruthy(),
+      expect(
+        screen.getByRole('heading', { name: 'Check your email' }),
+      ).toBeTruthy(),
     );
     const registration = fetchMock.mock.calls.find(([url]) =>
       url.endsWith('/auth/register'),
@@ -2433,4 +2436,99 @@ it('calculator lab renders configurable inputs and working', () => {
   );
   expect(screen.getByLabelText('Fixed costs')).toBeTruthy();
   expect(screen.getByText('Multiply by two.')).toBeTruthy();
+});
+
+describe('email-code verification screen', () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+  it('accepts exactly six digits and uses the server-confirmed user', async () => {
+    const user = {
+      email: 'learner@example.com',
+      needs_email_verification: true,
+    };
+    const verified = { ...user, needs_email_verification: false };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(response({ verified: true, user: verified }));
+    vi.stubGlobal('fetch', fetchMock);
+    const done = vi.fn();
+    render(
+      <EmailCodeVerification user={user} onVerified={done} onBack={vi.fn()} />,
+    );
+    const button = screen.getByRole('button', {
+      name: 'Verify email',
+      exact: true,
+    });
+    expect(button.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText('Verification code'), {
+      target: { value: '12a3456' },
+    });
+    expect(screen.getByLabelText('Verification code').value).toBe('123456');
+    fireEvent.click(button);
+    await waitFor(() => expect(done).toHaveBeenCalledWith(verified));
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      code: '123456',
+    });
+  });
+  it('shows inline verification failures and safe delivery messages', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          response(
+            { error: { message: 'That code is invalid or expired.' } },
+            false,
+          ),
+        ),
+    );
+    render(
+      <EmailCodeVerification
+        user={{ email: 'learner@example.com' }}
+        delivery="unavailable"
+        onVerified={vi.fn()}
+        onBack={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByText(/verification email could not be sent/),
+    ).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Verification code'), {
+      target: { value: '123456' },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Verify email', exact: true }),
+    );
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'invalid or expired',
+    );
+    expect(screen.getByRole('button', { name: /Resend code/ }).disabled).toBe(
+      true,
+    );
+  });
+  it('resends without exposing a recipient override and starts the cooldown', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(response({ sent: true, retryAfter: 60 }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(
+      <EmailCodeVerification
+        user={{ email: 'learner@example.com' }}
+        onVerified={vi.fn()}
+        onBack={vi.fn()}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Resend code', exact: true }),
+    );
+    expect((await screen.findByRole('status')).textContent).toContain(
+      'A new verification code was sent.',
+    );
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({});
+    expect(screen.getByRole('button', { name: /Resend code/ }).disabled).toBe(
+      true,
+    );
+  });
 });

@@ -20,6 +20,11 @@ import multer from 'multer';
 import QRCode from 'qrcode';
 import { z } from 'zod';
 import { sendVerificationEmail } from './email.js';
+import {
+  issueEmailCode,
+  verifyEmailCode,
+  verifyEmailLink,
+} from './email-codes.js';
 import { readUpload, persistUpload } from './file-storage.js';
 import {
   emailSchema,
@@ -119,6 +124,7 @@ app.use(
     '/api/v1/auth/login',
     '/api/v1/auth/register',
     '/api/v1/auth/resend-verification',
+    '/api/v1/auth/verify-email',
   ],
   authLimiter,
 );
@@ -435,12 +441,28 @@ const issueSession = async (userId, res) => {
   });
 };
 const issueVerificationMail = async (userId, email, targetEmail = null) => {
+  const client = await pool.connect();
+  let code;
   const token = crypto.randomBytes(32).toString('base64url');
-  await pool.query(
-    `INSERT INTO email_verification_tokens(user_id,token_hash,target_email,expires_at) VALUES($1,$2,$3,now()+interval '24 hours')`,
-    [userId, sessionHash(token), targetEmail],
-  );
-  await sendVerificationEmail({ userId, email, token });
+  try {
+    await client.query('BEGIN');
+    code = await issueEmailCode(client, userId, targetEmail);
+    await client.query(
+      'UPDATE email_verification_tokens SET used_at=COALESCE(used_at,now()) WHERE user_id=$1',
+      [userId],
+    );
+    await client.query(
+      `INSERT INTO email_verification_tokens(user_id,token_hash,target_email,expires_at) VALUES($1,$2,$3,now()+interval '24 hours')`,
+      [userId, sessionHash(token), targetEmail],
+    );
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+  await sendVerificationEmail({ userId, email, token, code });
 };
 
 const nameSchema = z
@@ -645,7 +667,17 @@ app.post(
           user.pending_email || user.email,
           user.pending_email || null,
         );
-      } catch {
+      } catch (mailError) {
+        if (mailError.code === 'VERIFICATION_COOLDOWN') {
+          res.set('Retry-After', '60');
+          return error(
+            res,
+            429,
+            'VERIFICATION_COOLDOWN',
+            'Wait a minute before requesting another code.',
+            requestId(req),
+          );
+        }
         return error(
           res,
           503,
@@ -654,12 +686,43 @@ app.post(
           requestId(req),
         );
       }
-      res.json({ sent: true });
+      res.json({ sent: true, retryAfter: 60 });
     } catch (e) {
       next(e);
     }
   },
 );
+
+app.post('/api/v1/auth/verify-email', requireAuth, async (req, res, next) => {
+  try {
+    const data = parse(
+      z
+        .object({
+          code: z
+            .string()
+            .regex(/^\d{6}$/, 'Enter the 6-digit verification code.'),
+        })
+        .strict(),
+      req.body,
+      req,
+      res,
+      422,
+    );
+    if (!data) return;
+    const user = await verifyEmailCode(pool, req.user.userId, data.code);
+    if (!user)
+      return error(
+        res,
+        422,
+        'INVALID_VERIFICATION_CODE',
+        'That code is invalid, expired or has already been used. Request a new code if needed.',
+        requestId(req),
+      );
+    res.json({ verified: true, user });
+  } catch (e) {
+    next(e);
+  }
+});
 
 app.get('/api/v1/auth/verify-email', async (req, res, next) => {
   try {
@@ -670,11 +733,8 @@ app.get('/api/v1/auth/verify-email', async (req, res, next) => {
       res,
     );
     if (!data) return;
-    const result = await pool.query(
-      `UPDATE email_verification_tokens SET used_at=now() WHERE token_hash=$1 AND used_at IS NULL AND expires_at>now() RETURNING user_id,target_email`,
-      [sessionHash(data.token)],
-    );
-    if (!result.rowCount)
+    const verified = await verifyEmailLink(pool, data.token);
+    if (!verified)
       return error(
         res,
         422,
@@ -682,10 +742,6 @@ app.get('/api/v1/auth/verify-email', async (req, res, next) => {
         'This verification link is invalid or expired.',
         requestId(req),
       );
-    await pool.query(
-      `UPDATE users SET email=COALESCE($2,email),pending_email=NULL,email_verified_at=now() WHERE user_id=$1`,
-      [result.rows[0].user_id, result.rows[0].target_email],
-    );
     res.json({ verified: true });
   } catch (e) {
     next(e);

@@ -1,5 +1,8 @@
 # EduQuest traceability
 
+Latest registration behavior: [OTP branch follow-up](REGISTRATION_OTP_2026-11-03.md),
+including real Gmail inbox verification and the browser/API security matrix.
+
 Live deployment evidence: [Vercel deployment](VERCEL_DEPLOYMENT.md).
 Private file access, hosted PDF extraction, production sessions and real
 OpenRouter persistence/submission are covered there.

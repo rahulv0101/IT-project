@@ -2893,3 +2893,12 @@ input[type='radio'] {
     padding: 18px;
   }
 }
+
+.auth-page.auth-verification {
+  grid-template-columns: minmax(0, 480px);
+  justify-content: center;
+}
+.auth-verification form {
+  display: grid;
+  gap: 16px;
+}

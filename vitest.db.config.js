@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
 process.env.EMAIL_DELIVERY = 'development-file';
+process.env.EMAIL_OTP_SECRET = 'offline-tests-only-email-verification-secret';
 
 const suitePort = Number(process.env.PGLITE_SUITE_PORT ?? 55433);
 const suiteUrl = `postgres://postgres:postgres@127.0.0.1:${suitePort}/eduquest_test?sslmode=disable`;

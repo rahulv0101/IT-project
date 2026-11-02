@@ -59,7 +59,9 @@ describe('verification email delivery', () => {
     vi.stubEnv('SMTP_USER', 'mailer');
     vi.stubEnv('SMTP_PASSWORD', ' a secret with spaces ');
     vi.stubEnv('PUBLIC_APP_URL', 'https://eduquest.example.com');
-    expect(await sendVerificationEmail(mail)).toEqual({ delivery: 'smtp' });
+    expect(await sendVerificationEmail({ ...mail, code: '123456' })).toEqual({
+      delivery: 'smtp',
+    });
     expect(createTransport).toHaveBeenCalledWith(
       expect.objectContaining({
         secure: false,
@@ -74,6 +76,12 @@ describe('verification email delivery', () => {
           `https://eduquest.example.com/verify-email?token=${mail.token}`,
         ),
       }),
+    );
+    expect(sendMail.mock.calls[0][0].text).toContain(
+      'verification code: 123456',
+    );
+    expect(sendMail.mock.calls[0][0].text).toContain(
+      'code expires in 10 minutes',
     );
     await expect(stat(file)).rejects.toMatchObject({ code: 'ENOENT' });
   });

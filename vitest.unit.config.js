@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
 process.env.EMAIL_DELIVERY = 'development-file';
+process.env.EMAIL_OTP_SECRET = 'offline-tests-only-email-verification-secret';
 
 const databaseTests = [
   'backend/tests/admin-api.test.js',

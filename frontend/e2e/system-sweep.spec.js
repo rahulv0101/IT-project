@@ -19,7 +19,7 @@ async function login(page, email) {
   ).toBeVisible();
 }
 
-test('registration accepts an omitted surname, explains errors and verifies email', async ({
+test('registration matches the branch and verifies a six-digit email code', async ({
   page,
 }, info) => {
   const errors = [];
@@ -28,6 +28,11 @@ test('registration accepts an omitted surname, explains errors and verifies emai
   await page.goto('/');
   await page.getByRole('button', { name: 'Create an account' }).click();
   await page.getByLabel('First name', { exact: true }).fill('Sam');
+  await expect(page.getByLabel('Last name', { exact: true })).toHaveAttribute(
+    'required',
+    '',
+  );
+  await page.getByLabel('Last name', { exact: true }).fill('Example');
   await page.getByLabel('Email', { exact: true }).fill(email);
   await page.getByLabel('Password', { exact: true }).fill('CorrectHorse9!');
   await page
@@ -68,7 +73,30 @@ test('registration accepts an omitted surname, explains errors and verifies emai
   const response = await registered;
   expect(response.status()).toBe(201);
   const { user } = await response.json();
-  expect(user.last_name).toBeNull();
+  expect(user.last_name).toBe('Example');
+  await expect(
+    page.getByRole('heading', { name: 'Check your email', exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    page.getByRole('heading', { name: 'Check your email', exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Resend code', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Wait a minute');
+  const mail = await readFile(`docs/dev-mail/${user.user_id}.txt`, 'utf8');
+  const code = mail.match(/verification code: (\d{6})/)[1];
+  await page
+    .getByLabel('Verification code', { exact: true })
+    .fill(code === '000000' ? '000001' : '000000');
+  await page.getByRole('button', { name: 'Verify email', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('invalid');
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page.screenshot({
+    path: info.outputPath('email-code-screen.png'),
+    fullPage: true,
+  });
+  await page.getByLabel('Verification code', { exact: true }).fill(code);
+  await page.getByRole('button', { name: 'Verify email', exact: true }).click();
   await expect(
     page.getByRole('heading', { name: 'Dashboard', exact: true }),
   ).toBeVisible();
@@ -76,26 +104,14 @@ test('registration accepts an omitted surname, explains errors and verifies emai
   await expect(
     page.getByRole('heading', { name: 'Dashboard', exact: true }),
   ).toBeVisible();
-  await page.getByRole('button', { name: 'Profile', exact: true }).click();
-  await page
-    .getByRole('button', { name: 'Resend verification email', exact: true })
-    .click();
-  await expect(
-    page.getByText('Check your email for a new verification link.', {
-      exact: true,
-    }),
-  ).toBeVisible();
-  const mail = await readFile(`docs/dev-mail/${user.user_id}.txt`, 'utf8');
-  const url = new URL(mail.match(/https?:\/\/\S+/)[0]);
-  await page.goto(url.pathname + url.search);
-  await expect(
-    page.getByText('Your email is verified.', { exact: true }),
-  ).toBeVisible();
-  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
-  await page.getByRole('button', { name: 'Continue to EduQuest' }).click();
   await page.getByRole('button', { name: 'Log out', exact: true }).click();
   await page.getByRole('button', { name: 'Create an account' }).click();
   await page.getByLabel('First name', { exact: true }).fill('Sam');
+  await expect(page.getByLabel('Last name', { exact: true })).toHaveAttribute(
+    'required',
+    '',
+  );
+  await page.getByLabel('Last name', { exact: true }).fill('Example');
   await page.getByLabel('Email', { exact: true }).fill(email);
   await page.getByLabel('Password', { exact: true }).fill('CorrectHorse9!');
   await page.getByLabel('Confirm password').fill('CorrectHorse9!');

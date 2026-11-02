@@ -1,23 +1,32 @@
-# Verification email
+# Email verification
 
-EduQuest uses single-use, 24-hour verification links backed by hashed random
-32-byte tokens. Registration and pending email changes share this delivery path.
-An authenticated student or lecturer can resend a link from Profile; the server
-chooses the account's current or pending address. Clients cannot choose a recipient.
-The endpoint shares the authentication rate limiter.
+Registration uses a six-digit, single-use code that expires after ten minutes.
+The code screen supports verification, resend, delivery failures and refresh.
+It matches the registration branch while keeping existing MFA login intact.
+
+Codes are bound to the signed-in account and stored only as keyed HMACs. Five
+incorrect guesses lock a challenge; resends have a database-enforced sixty
+second cooldown. No recipient or account ID is accepted from the client.
+
+Legacy single-use verification links remain in the email for compatibility and
+pending email changes. Code and link consumption are transactional and invalidate
+each other. See [the OTP validation report](REGISTRATION_OTP_2026-11-03.md).
 
 ## Development
 
 With SMTP unconfigured, messages are written to the ignored
-`docs/dev-mail/<user-id>.txt` directory with owner-only file permissions.
-Open the link to verify the account. `PUBLIC_APP_URL` defaults to
-`http://localhost:5173`; set it to your actual frontend URL when using another
-address. Registration still succeeds if mail delivery fails, and Profile offers
-a resend action. Production never falls back to local files.
+`docs/dev-mail/<user-id>.txt` directory with owner-only permissions. They contain
+the code and legacy link. Offline tests explicitly force this delivery mode.
+`PUBLIC_APP_URL` defaults to `http://localhost:5173`; set it to the actual frontend
+URL for another deployment. Production never falls back to local files.
 
 ## SMTP
 
-Configure these variables in the ignored deployment environment:
+Production is configured with Gmail SMTP on port 465 using implicit TLS. Actual
+credentials stay in the ignored environment and encrypted Vercel variables.
+The live inbox-code verification test passed.
+
+Other SMTP providers can use the same settings:
 
 ```dotenv
 PUBLIC_APP_URL=https://eduquest.example.com
@@ -30,9 +39,13 @@ SMTP_FROM=EduQuest <verify@example.com>
 ```
 
 Port 587 uses mandatory STARTTLS. For implicit TLS, typically port 465, set
-`SMTP_SECURE=true`. Passwords are passed unchanged, including whitespace.
+`SMTP_SECURE=true`. Transport passwords are passed unchanged. For a Gmail app
+password, enter its sixteen characters without the display grouping spaces.
 Production requires an HTTPS application URL, SMTP host and sender.
 
-Automated suites force `EMAIL_DELIVERY=development-file`; SMTP-specific tests
-mock Nodemailer's transport. Do not set that override in production. Real SMTP
-credentials and inbox delivery have not been configured or verified here.
+The code HMAC uses `EMAIL_OTP_SECRET` when configured, otherwise the existing
+`AI_SERVICE_TOKEN`. Keep this server secret stable across deployments.
+
+Delivery failure preserves the account/session and shows retry guidance rather
+than claiming an email was sent. Verification remains pending until the user
+supplies a valid code or legacy link.

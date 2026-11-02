@@ -3,7 +3,12 @@ import path from 'node:path';
 import { mkdir, writeFile, chmod } from 'node:fs/promises';
 import nodemailer from 'nodemailer';
 
-export async function sendVerificationEmail({ userId, email, token }) {
+export async function sendVerificationEmail({
+  userId,
+  email,
+  token,
+  code = '',
+}) {
   const production = process.env.NODE_ENV === 'production';
   const localDelivery = process.env.EMAIL_DELIVERY === 'development-file';
   const smtpConfigured = Boolean(
@@ -27,7 +32,7 @@ export async function sendVerificationEmail({ userId, email, token }) {
     );
   }
   const subject = 'Verify your EduQuest email';
-  const text = `Verify your EduQuest email: ${link.href}\nThis link expires in 24 hours and can only be used once.`;
+  const text = `${code ? `Your EduQuest verification code: ${code}\nThe code expires in 10 minutes and can only be used once.\n\n` : ''}Verify your EduQuest email: ${link.href}\nThis link expires in 24 hours and can only be used once.`;
   if (production && (localDelivery || !smtpConfigured))
     throw new Error('SMTP_HOST and SMTP_FROM are required in production.');
   if (!localDelivery && smtpConfigured) {

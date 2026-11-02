@@ -21,14 +21,14 @@ const upsertUser = async (email, role, fullName) => {
   );
   if (existing.rowCount) {
     await client.query(
-      'UPDATE users SET password_hash=$1,full_name=$2,role=$3 WHERE user_id=$4',
+      'UPDATE users SET password_hash=$1,full_name=$2,role=$3,email_verified_at=COALESCE(email_verified_at,now()) WHERE user_id=$4',
       [hash, fullName, role, existing.rows[0].user_id],
     );
     return existing.rows[0].user_id;
   }
   return (
     await client.query(
-      'INSERT INTO users(email,password_hash,role,full_name) VALUES($1,$2,$3,$4) RETURNING user_id',
+      'INSERT INTO users(email,password_hash,role,full_name,email_verified_at) VALUES($1,$2,$3,$4,now()) RETURNING user_id',
       [email.toLowerCase(), hash, role, fullName],
     )
   ).rows[0].user_id;

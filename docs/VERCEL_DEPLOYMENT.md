@@ -39,9 +39,9 @@ using the admin account. No public demo passwords were deployed.
 `.env.local` contains integration-managed database credentials. All `.env*` files
 and `.vercel` directories are excluded from deployment uploads and Git.
 
-SMTP is not configured. Registration/login remain usable, but verification email
-and pending-address delivery require the settings in [EMAIL.md](EMAIL.md).
-No actual email delivery is claimed.
+Gmail SMTP is configured on port 465 with implicit TLS. The six-digit
+registration screen, live inbox-code entry and replay rejection are verified.
+See [EMAIL.md](EMAIL.md) and the [OTP follow-up](REGISTRATION_OTP_2026-11-03.md).
 
 ## Updating the site
 
@@ -63,8 +63,8 @@ includes development build tools even with `NODE_ENV=production`.
 
 ## Validation
 
-- All 27 migrations applied successfully to the fresh hosted PostgreSQL database.
-- 243 JavaScript unit/component tests, 339 database/API tests, and 61 Python tests
+- All 28 migrations applied successfully to the fresh hosted PostgreSQL database.
+- 246 JavaScript unit/component tests, 345 database/API tests, and 61 Python tests
   pass, with zero skips. Lint, project type-check and formatting checks pass.
 - Private storage tests cover persistence across scratch locations, failure when
   unavailable, and authorization before fetching cloud resource bytes.

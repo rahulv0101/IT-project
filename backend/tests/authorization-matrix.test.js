@@ -1,6 +1,7 @@
 // @ts-nocheck - this suite drives runtime Express routes and dynamic fixtures.
 import 'dotenv/config';
 import crypto from 'node:crypto';
+import { hashEmailCode } from '../src/email-codes.js';
 import path from 'node:path';
 import bcrypt from 'bcryptjs';
 import request from 'supertest';
@@ -131,6 +132,7 @@ function sendWithCookie(method, path, cookie, body) {
 }
 
 const bodies = {
+  'POST /api/v1/auth/verify-email': () => ({ code: '000000' }),
   'POST /api/v1/auth/resend-verification': () => ({}),
   'POST /api/v1/auth/register': () => ({
     email: `matrix-new-${Date.now()}@example.com`,
@@ -331,6 +333,7 @@ const bodies = {
 };
 
 const specs = {
+  'POST /api/v1/auth/verify-email': ['/api/v1/auth/verify-email', 'student'],
   'POST /api/v1/auth/resend-verification': [
     '/api/v1/auth/resend-verification',
     'student',
@@ -1151,6 +1154,30 @@ async function assertRoute(route, [template, successRole]) {
   const path = pathFor(template);
   const body = bodies[route]?.() ?? {};
   const isPublic = authorizationMatrix[route].auth === 'public';
+  if (route === 'POST /api/v1/auth/verify-email') {
+    expect((await send(request(app), method, path, body)).status).toBe(401);
+    const agent = await login('student');
+    expect((await send(agent, method, path, { code: 'bad' })).status).toBe(422);
+    const userId = (
+      await pool.query('SELECT user_id FROM users WHERE email=$1', [
+        users.student.email,
+      ])
+    ).rows[0].user_id;
+    const challengeId = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO email_verification_codes(user_id,challenge_id,code_hash,expires_at)
+      VALUES($1,$2,$3,now()+interval '10 minutes') ON CONFLICT(user_id) DO UPDATE SET challenge_id=EXCLUDED.challenge_id,
+      code_hash=EXCLUDED.code_hash,expires_at=EXCLUDED.expires_at,used_at=NULL,failed_attempts=0,target_email=NULL`,
+      [userId, challengeId, hashEmailCode(userId, challengeId, body.code)],
+    );
+    const success = await send(agent, method, path, body);
+    expect(success.status).toBe(200);
+    expect(success.body.user.needs_email_verification).toBe(false);
+    expect((await send(agent, method, path, body)).status).toBe(422);
+    await assertNoSensitive(success, route);
+    return;
+  }
+
   if (
     route.startsWith('GET /api/v1/me/profile') ||
     route.startsWith('PATCH /api/v1/me/profile') ||
@@ -1308,7 +1335,7 @@ async function assertRoute(route, [template, successRole]) {
 describe('executable route authorization matrix', () => {
   beforeAll(createFixture);
   it('derives every route and requires a concrete assertion body', () => {
-    expect(routeInventory.length).toBe(132);
+    expect(routeInventory.length).toBe(133);
     expect(Object.keys(specs).sort()).toEqual([...routeInventory].sort());
     for (const route of routeInventory) {
       expect(specs[route]).toBeTruthy();

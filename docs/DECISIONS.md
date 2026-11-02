@@ -1,5 +1,20 @@
 # Decisions
 
+## 2026-11-03 — Registration branch OTP follow-up
+
+- Restore the requested registration/OTP experience rather than retaining the
+  earlier link-only UI. The public form requires a surname and shows password
+  requirements directly beneath the password. Legacy API name compatibility is
+  retained. The verification step survives refresh; MFA login remains intact.
+- Bind six-digit codes to the authenticated user, with a nonce, keyed HMAC,
+  ten-minute expiry, five-guess limit and sixty-second resend cooldown in the DB.
+  Serialize consumption transactionally; legacy links and codes invalidate each
+  other under the same lock order.
+- Configure Gmail SMTP with implicit TLS using private server credentials.
+  Actual inbox-code entry, refresh and replay rejection passed on the public site.
+  Keep all offline suites on file/mock delivery.
+- See `REGISTRATION_OTP_2026-11-03.md` for current behavior and validation.
+
 ## 2026-11-03 — Vercel deployment
 
 - Deploy the existing Vite/Express frontend/API and the authenticated Python AI

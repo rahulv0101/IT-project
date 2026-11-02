@@ -31,6 +31,8 @@ const api = async (path, options = {}) => {
       new Error(body?.error?.message || 'Something went wrong.'),
       {
         fields: body?.error?.fields || {},
+        code: body?.error?.code,
+        retryAfter: Number(response.headers?.get?.('retry-after')) || 0,
       },
     );
   return body;
@@ -52,6 +54,154 @@ function PasswordInput({ show, onToggle, label, ...props }) {
   );
 }
 
+export function EmailCodeVerification({ user, onVerified, onBack, delivery }) {
+  const [code, setCode] = useState('');
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [verifying, setVerifying] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [cooldown, setCooldown] = useState(delivery ? 60 : 0);
+  useEffect(() => {
+    if (!cooldown) return;
+    const timer = setTimeout(
+      () => setCooldown((value) => Math.max(0, value - 1)),
+      1000,
+    );
+    return () => clearTimeout(timer);
+  }, [cooldown]);
+  const verify = async (event) => {
+    event.preventDefault();
+    if (verifying || resending || code.length !== 6) return;
+    setVerifying(true);
+    setError('');
+    setMessage('');
+    try {
+      const body = await api('/auth/verify-email', {
+        method: 'POST',
+        body: JSON.stringify({ code }),
+      });
+      onVerified(body.user);
+    } catch (reason) {
+      setError(reason.message);
+    } finally {
+      setVerifying(false);
+    }
+  };
+  const resend = async () => {
+    if (resending || verifying || cooldown) return;
+    setResending(true);
+    setError('');
+    setMessage('');
+    try {
+      const body = await api('/auth/resend-verification', {
+        method: 'POST',
+        body: '{}',
+      });
+      setCooldown(body.retryAfter || 60);
+      setMessage('A new verification code was sent.');
+      setCode('');
+    } catch (reason) {
+      setError(reason.message);
+      if (reason.retryAfter) setCooldown(reason.retryAfter);
+    } finally {
+      setResending(false);
+    }
+  };
+  const back = async () => {
+    try {
+      await api('/auth/logout', { method: 'POST', body: '{}' });
+      onBack();
+    } catch (reason) {
+      setError(reason.message);
+    }
+  };
+  return (
+    <main className="auth-page auth-verification">
+      <section className="card auth-card" aria-labelledby="verify-heading">
+        <span className="eyebrow">EDUQUEST</span>
+        <h1 id="verify-heading">Check your email</h1>
+        <p className="auth-description">
+          {delivery === 'unavailable' ? (
+            <>
+              Your account was created, but the verification email could not be
+              sent to <strong>{user.email}</strong>. Try resending shortly.
+            </>
+          ) : (
+            <>
+              {delivery === 'sent'
+                ? 'We sent a 6-digit verification code to'
+                : 'Enter the 6-digit verification code for'}{' '}
+              <strong>{user.email}</strong>.
+            </>
+          )}
+        </p>
+        <form onSubmit={verify}>
+          <label>
+            Verification code
+            <input
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              pattern="[0-9]{6}"
+              maxLength={6}
+              value={code}
+              required
+              autoFocus
+              aria-invalid={Boolean(error)}
+              aria-describedby={
+                error ? 'email-code-error' : 'email-code-expiry'
+              }
+              onChange={(event) => {
+                setCode(event.target.value.replace(/\D/g, '').slice(0, 6));
+                setError('');
+              }}
+            />
+          </label>
+          <p className="muted" id="email-code-expiry">
+            The code expires in 10 minutes and can only be used once.
+          </p>
+          {error && (
+            <p className="form-error" role="alert" id="email-code-error">
+              {error}
+            </p>
+          )}
+          {message && (
+            <p className="success" role="status">
+              {message}
+            </p>
+          )}
+          <button
+            className="primary"
+            type="submit"
+            disabled={verifying || resending || code.length !== 6}
+          >
+            {verifying ? 'Verifying…' : 'Verify email'}
+          </button>
+          <button
+            className="link-button"
+            type="button"
+            onClick={resend}
+            disabled={resending || verifying || cooldown > 0}
+          >
+            {resending
+              ? 'Sending…'
+              : cooldown
+                ? `Resend code (${cooldown}s)`
+                : 'Resend code'}
+          </button>
+          <button
+            className="link-button"
+            type="button"
+            onClick={back}
+            disabled={verifying || resending}
+          >
+            Back to sign in
+          </button>
+        </form>
+      </section>
+    </main>
+  );
+}
+
 // ── Registration and login ─────────────────────────────────────────────────
 function Auth({ onLogin }) {
   const [mode, setMode] = useState('login');
@@ -67,18 +217,24 @@ function Auth({ onLogin }) {
   const [error, setError] = useState('');
   const [fields, setFields] = useState({});
   const [busy, setBusy] = useState(false);
+  const [verification, setVerification] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const passwordRules = [
     ['At least 10 characters', form.password.length >= 10],
-    ['An uppercase letter', /[A-Z]/.test(form.password)],
-    ['A lowercase letter', /[a-z]/.test(form.password)],
-    ['A number', /[0-9]/.test(form.password)],
-    ['A special character', /[^A-Za-z0-9]/.test(form.password)],
+    ['At least one uppercase letter', /[A-Z]/.test(form.password)],
+    ['At least one lowercase letter', /[a-z]/.test(form.password)],
+    ['At least one number', /[0-9]/.test(form.password)],
+    ['At least one special character', /[^A-Za-z0-9]/.test(form.password)],
   ];
   const [challengeId, setChallengeId] = useState(null);
   const [factor, setFactor] = useState('');
   const [useRecovery, setUseRecovery] = useState(false);
+  const setField = (key, value) => {
+    setForm((current) => ({ ...current, [key]: value }));
+    setFields((current) => ({ ...current, [key]: '' }));
+    setError('');
+  };
   const fieldProps = (key) => ({
     'aria-invalid': Boolean(fields[key]),
     'aria-describedby': fields[key] ? `auth-${key}-error` : undefined,
@@ -121,7 +277,12 @@ function Auth({ onLogin }) {
         setChallengeId(body.challengeId);
         setFactor('');
       } else if (body.user) {
-        onLogin(body.user);
+        if (mode === 'register')
+          setVerification({
+            ...body.user,
+            email: body.user.email || form.email,
+          });
+        else onLogin(body.user);
       } else {
         setError('Sign-in could not be completed. Please try again.');
       }
@@ -132,6 +293,18 @@ function Auth({ onLogin }) {
       setBusy(false);
     }
   };
+  if (verification)
+    return (
+      <EmailCodeVerification
+        user={verification}
+        delivery={verification.verification_delivery}
+        onVerified={onLogin}
+        onBack={() => {
+          setVerification(null);
+          setMode('login');
+        }}
+      />
+    );
   return (
     <main className="auth-page">
       {/* Decorative welcome panel; the form remains the semantic focus. */}
@@ -179,7 +352,7 @@ function Auth({ onLogin }) {
                 <input
                   value={form.firstName}
                   onChange={(event) =>
-                    setForm({ ...form, firstName: event.target.value })
+                    setField('firstName', event.target.value)
                   }
                   required
                   autoComplete="given-name"
@@ -191,15 +364,14 @@ function Auth({ onLogin }) {
             )}
             {mode === 'register' && (
               <label>
-                Last name (optional)
+                Last name
                 <input
                   value={form.lastName}
+                  required
                   autoComplete="family-name"
                   maxLength={50}
                   {...fieldProps('lastName')}
-                  onChange={(event) =>
-                    setForm({ ...form, lastName: event.target.value })
-                  }
+                  onChange={(event) => setField('lastName', event.target.value)}
                 />
                 {fieldError('lastName')}
               </label>
@@ -212,9 +384,7 @@ function Auth({ onLogin }) {
                 maxLength={254}
                 {...fieldProps('email')}
                 value={form.email}
-                onChange={(event) =>
-                  setForm({ ...form, email: event.target.value })
-                }
+                onChange={(event) => setField('email', event.target.value)}
                 required
               />
               {fieldError('email')}
@@ -231,13 +401,36 @@ function Auth({ onLogin }) {
                 }
                 {...fieldProps('password')}
                 value={form.password}
-                onChange={(event) =>
-                  setForm({ ...form, password: event.target.value })
-                }
+                onChange={(event) => setField('password', event.target.value)}
                 required
                 minLength={mode === 'register' ? 10 : undefined}
                 maxLength={200}
               />
+              {mode === 'register' && (
+                <>
+                  {' '}
+                  <p className="sr-only">
+                    Password strength:{' '}
+                    {passwordRules.filter(([, met]) => met).length} of 5 rules
+                    met
+                  </p>
+                  <ul
+                    className="password-rules"
+                    aria-label="Password requirements"
+                  >
+                    {passwordRules.map(([label, met]) => (
+                      <li key={label} className={met ? 'met' : 'unmet'}>
+                        <span aria-hidden="true">{met ? '✓' : '○'} </span>
+                        {label}
+                        <span className="sr-only">
+                          {' '}
+                          {met ? 'met' : 'unmet'}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
               {fieldError('password')}
             </div>
             {mode === 'register' && (
@@ -256,7 +449,7 @@ function Auth({ onLogin }) {
                     {...fieldProps('confirmPassword')}
                     value={form.confirmPassword}
                     onChange={(event) =>
-                      setForm({ ...form, confirmPassword: event.target.value })
+                      setField('confirmPassword', event.target.value)
                     }
                     required
                   />
@@ -290,27 +483,7 @@ function Auth({ onLogin }) {
                     <option value={3}>Year 3</option>
                   </select>
                 </label>
-                <p className="muted">
-                  Password strength:{' '}
-                  {passwordRules.filter(([, met]) => met).length} of 5 rules met
-                </p>
-                <ul
-                  className="password-rules"
-                  aria-label="Password requirements"
-                >
-                  {passwordRules.map(([label, met]) => (
-                    <li key={label} className={met ? 'met' : 'unmet'}>
-                      <span aria-hidden="true">{met ? '✓' : '○'} </span>
-                      {label} — {met ? 'met' : 'unmet'}
-                    </li>
-                  ))}
-                </ul>
                 <p className="muted">Registration creates a student account.</p>
-                <p className="muted">
-                  Use at least 10 characters with uppercase and lowercase
-                  letters, a number and a special character. Avoid your name or
-                  email.
-                </p>
               </>
             )}
           </>
@@ -370,7 +543,7 @@ function Auth({ onLogin }) {
               : 'I already have an account'}
         </button>
         {error && (
-          <p className="field-error" role="alert">
+          <p className="form-error" role="alert">
             {error}
           </p>
         )}
@@ -456,6 +629,14 @@ export function App() {
   if (loading)
     return <main className="center-state">Loading your workspace…</main>;
   if (!user) return <Auth onLogin={setUser} />;
+  if (user.needs_email_verification || user.needsEmailVerification)
+    return (
+      <EmailCodeVerification
+        user={user}
+        onVerified={setUser}
+        onBack={() => setUser(null)}
+      />
+    );
   const studentScreens = [
     'Dashboard',
     'Modules',
@@ -5553,7 +5734,7 @@ export function ProfilePage({ user, onUserChange }) {
     setMessage('');
     try {
       await api('/auth/resend-verification', { method: 'POST', body: '{}' });
-      setMessage('Check your email for a new verification link.');
+      setMessage('Check your email for a new verification code.');
     } catch (reason) {
       setError(reason.message);
     } finally {

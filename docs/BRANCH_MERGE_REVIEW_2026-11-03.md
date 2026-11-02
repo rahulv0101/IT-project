@@ -1,5 +1,9 @@
 # External branch compatibility review — 3 November 2026
 
+Follow-up: the requested OTP registration experience is now included via an
+account-scoped implementation. See [the current OTP report](REGISTRATION_OTP_2026-11-03.md).
+The review below records the earlier integration checkpoint.
+
 Reviewed all fetched branches from `origin` (`rahulv0101/IT-project`). The only
 external feature branch was `origin/Register-page-fixed` at `ea59f75`, based on
 an older master (`a985f36`). There were no open or closed pull requests.
