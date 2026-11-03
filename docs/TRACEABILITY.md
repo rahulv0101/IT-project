@@ -452,3 +452,5 @@ Live release: `fe56421` is deployed. Migration 036 preserved the existing sessio
 `Modules` in `frontend/src/main.jsx` renders the year alone instead of appending the stored offering (such as Semester 1). This is a display-only change; module records, year audiences and join codes remain unchanged.
 
 Validation: all 74 existing application/profile/module component tests passed; lint, type checking, formatting and production build passed. No database change is needed.
+
+Live verification: source `f96a796` was pushed to Rahul's master branch and deployed to https://eduquest-dun.vercel.app (`dpl_2JwcUC9A29xioVkWy41oSNzfpPy6`). An authenticated lecturer view confirmed year-only module cards, no semester labels and retained student join codes. No module data was changed during validation.
