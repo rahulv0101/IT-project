@@ -19,3 +19,11 @@ Every new admin-created account requires email OTP before protected account acce
 - A private 48-table backup was taken before migration. Existing user rows are compared before/after the additive schema change.
 
 Deployment verification is appended after the release completes.
+
+## Live release verification
+
+- Source commit `92cfc0f` was pushed to Rahul's master branch and deployed successfully to https://eduquest-dun.vercel.app (deployment `dpl_DxHNgUv2XkeWkTminkbem6y4c7or`).
+- Migration 035 committed successfully after the private backup. All 25 original user rows were identical after excluding the new default-false flag. The distinct delivery QA record remains retained but inactive, with sessions revoked and its temporary plaintext password removed locally.
+- The canonical site serves the new client bundle, pending-verification indicator, password confirmation and matching PWA asset manifest. Backend health passed.
+- An existing lecturer successfully signed in, fetched their identity and protected module list, signed out with the documented 204 response, then received 401 on the protected identity route. No original account password, status, academic data or verification state was changed.
+- TLS certificate verification remained enabled. This workstation's default Vercel edge was intermittently unreachable, so read-only live requests used another Vercel edge with the canonical hostname and certificate checks intact.
