@@ -37,7 +37,9 @@ self.addEventListener('fetch', (event) => {
     return;
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request).catch(() => caches.match('/offline.html')),
+      fetch(request, { cache: 'no-store' }).catch(() =>
+        caches.match('/offline.html'),
+      ),
     );
     return;
   }

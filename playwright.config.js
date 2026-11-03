@@ -55,7 +55,7 @@ export default defineConfig({
   projects: [
     {
       name: 'webkit-mobile',
-      testMatch: 'collaboration.spec.js',
+      testMatch: ['collaboration.spec.js', 'pwa-outage.spec.js'],
       use: { ...devices['iPhone 13'], defaultBrowserType: 'webkit' },
     },
     {

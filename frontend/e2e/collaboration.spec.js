@@ -195,6 +195,7 @@ test('lecturer reviews questions and answers without student play actions', asyn
 test('PWA serves install metadata, excludes private caches and handles offline navigation', async ({
   page,
   context,
+  browserName,
 }) => {
   await page.goto('/');
   const manifest = await (
@@ -211,9 +212,12 @@ test('PWA serves install metadata, excludes private caches and handles offline n
     .toBe(true);
   for (const icon of manifest.icons)
     expect((await page.request.get(icon.src)).status()).toBe(200);
-  await page.evaluate(() =>
-    fetch('/api/v1/auth/me', { credentials: 'include' }),
+  const apiCache = await page.evaluate(async () =>
+    (await fetch('/api/v1/auth/me', { credentials: 'include' })).headers.get(
+      'cache-control',
+    ),
   );
+  expect(apiCache).toBe('private, no-store');
   const paths = await page.evaluate(async () => {
     const all = await Promise.all(
       (await caches.keys()).map(async (key) =>
@@ -229,9 +233,15 @@ test('PWA serves install metadata, excludes private caches and handles offline n
   await context.setOffline(true);
   await expect(page.getByText(/You’re offline. Reconnect/)).toBeVisible();
   await page.reload();
-  await expect(
-    page.getByRole('heading', { name: 'You’re offline' }),
-  ).toBeVisible();
+  if (browserName === 'firefox') {
+    // Firefox's emulated offline state does not stop service-worker network fetches.
+    // pwa-outage.spec.js shuts down the origin to verify the actual offline page.
+    await expect(page.getByText(/You’re offline. Reconnect/)).toBeVisible();
+  } else {
+    await expect(
+      page.getByRole('heading', { name: 'You’re offline' }),
+    ).toBeVisible();
+  }
   await context.setOffline(false);
   await page.reload();
   await expect(

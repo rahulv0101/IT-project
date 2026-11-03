@@ -34,6 +34,14 @@ beforeEach(async () => {
   f = await sessionFixture(pool);
 });
 describe('student directory and private messages', () => {
+  it('prevents browser and intermediary caching of authenticated API responses and auth errors', async () => {
+    const profile = await call('leader', 'get', '/api/v1/auth/me');
+    expect(profile.status).toBe(200);
+    expect(profile.headers['cache-control']).toBe('private, no-store');
+    const denied = await request(app).get('/api/v1/auth/me');
+    expect(denied.status).toBe(401);
+    expect(denied.headers['cache-control']).toBe('private, no-store');
+  });
   it('exposes student names without email or credentials and enforces module enrolment', async () => {
     const r = await call('leader', 'get', '/api/v1/students', {
       moduleId: f.moduleId,

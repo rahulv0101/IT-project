@@ -108,6 +108,26 @@ test('study sessions: leader schedules, member RSVPs, calendars, notifications a
       .getByText(`${sessionTitle} · cancelled`, { exact: true }),
   ).toBeVisible();
   await axe();
+  await page
+    .getByText(`${sessionTitle} · cancelled`, { exact: true })
+    .locator('..')
+    .getByRole('button', { name: 'Open session', exact: true })
+    .click();
+  await expect(
+    page
+      .getByRole('region', { name: 'Session details' })
+      .getByText('Cancelled: Room unavailable', { exact: true }),
+  ).toBeVisible();
+  await page.goBack();
+  await expect(
+    page.getByRole('region', { name: 'Session details' }),
+  ).toHaveCount(0);
+  await page.goForward();
+  await expect(
+    page
+      .getByRole('region', { name: 'Session details' })
+      .getByText('Cancelled: Room unavailable', { exact: true }),
+  ).toBeVisible();
   await page.getByRole('button', { name: 'Log out' }).click();
   await login('demo-student-2@example.com');
   await page.getByRole('button', { name: 'Study groups', exact: true }).click();

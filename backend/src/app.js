@@ -101,6 +101,10 @@ const hasAllowedMagic = (extension, bytes) =>
       : !bytes.subarray(0, 1024).includes(0);
 
 app.use(helmet());
+app.use('/api/v1', (_req, res, next) => {
+  res.set('Cache-Control', 'private, no-store');
+  next();
+});
 app.use(
   cors({
     origin: process.env.PUBLIC_APP_URL || 'http://localhost:5173',

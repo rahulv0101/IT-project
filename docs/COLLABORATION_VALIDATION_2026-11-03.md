@@ -10,7 +10,7 @@ Verified before deployment:
 
 | Check                                                  | Result                                                                            |
 | ------------------------------------------------------ | --------------------------------------------------------------------------------- |
-| JavaScript/component and PostgreSQL-protocol API tests | 636 passed, zero skipped (261 unit/component + 375 integration)                   |
+| JavaScript/component and PostgreSQL-protocol API tests | 637 passed, zero skipped (261 unit/component + 376 integration)                   |
 | Real PostgreSQL, including simultaneous requests       | 378 passed, zero skipped                                                          |
 | Python AI service                                      | 61 passed                                                                         |
 | ESLint, TypeScript, Prettier, production build         | Passed                                                                            |
@@ -20,4 +20,10 @@ Verified before deployment:
 
 Production migration 029 was applied after saving a private backup of the previous 45-table database. No existing account or academic record was reset.
 
-The complete browser matrix and production smoke-test evidence will be recorded below when those runs finish.
+Production functional checks passed for creating all three roles, exchanging private student messages, role boundaries, invitation acceptance, roster access, leadership handover and leaving, AI/manual questions-and-answers review, Profile controls and the HTTPS PWA. Four disposable accounts were removed through the new deletion API; they disappeared from Users and deleted-account login returned 401. Owner accounts and existing academic records were retained.
+
+A read-only production sweep passed 24 pages/administration sections across lecturer, verified student and administrator accounts, including axe accessibility, mobile overflow and the absence of Profile email/MFA controls. Private before/after migration backups contain 45 and 48 tables respectively and are excluded from Git/deployment.
+
+The browser matrix is finishing. Its real-outage PWA check shuts down a dedicated test origin rather than relying solely on Firefox's offline emulator, which empirically leaves service-worker fetches online. API HTTP responses are explicitly private/no-store and never enter the service-worker cache.
+
+Published code is available at https://eduquest-dun.vercel.app. Browser checks emulate screen sizes and iPhone WebKit; physical phone installation has not been exercised.
