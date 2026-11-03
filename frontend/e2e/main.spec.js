@@ -208,37 +208,34 @@ test('Business Lab scenario flow is accessible and resumable', async ({
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });
 
-test('Business Lab lecturer sees authoring controls only', async ({ page }) => {
-  await page.route('**/api/v1/**', async (route) => {
-    const path = new URL(route.request().url()).pathname;
-    const body = path.endsWith('/auth/me')
-      ? { user: { userId: 'lecturer-1', role: 'lecturer' } }
-      : path.endsWith('/me/modules')
-        ? {
-            data: [
-              {
-                module_id: 'module-1',
-                module_code: 'BUS101',
-                module_name: 'Business',
-              },
-            ],
-          }
-        : path.endsWith('/labs')
-          ? { data: [] }
-          : { data: [] };
-    await route.fulfill({
+test('lecturer navigation excludes games and labs, including direct links', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/**', (route) =>
+    route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(body),
-    });
-  });
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Practice Labs' }).click();
+      body: JSON.stringify(
+        new URL(route.request().url()).pathname.endsWith('/auth/me')
+          ? { user: { userId: 'lecturer-1', role: 'lecturer' } }
+          : { data: [] },
+      ),
+    }),
+  );
+  await page.goto('/#/practice-labs');
+  await expect(page.locator('main h1')).toHaveText('Study calendar');
   await expect(
-    page.getByRole('heading', { name: 'Create a Business Lab' }),
+    page.locator('aside').getByRole('button', { name: 'Games', exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page
+      .locator('aside')
+      .getByRole('button', { name: 'Practice Labs', exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole('button', { name: 'Quizzes', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'Create quiz', exact: true }),
   ).toBeVisible();
-  await expect(page.getByLabel('Kind')).toBeVisible();
-  await page.waitForTimeout(350);
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });
 
@@ -332,7 +329,9 @@ test('lecturer generation panel exposes mode metadata and stuck-job controls', a
   await expect(page.getByLabel('Quiz title')).toHaveValue('Database notes');
   await page.getByRole('button', { name: 'Generate quiz' }).click();
   await expect(page.getByText(/queued for/)).toBeVisible();
-  await expect(page.getByText(/AI service may be unreachable/)).toBeVisible();
+  await expect(
+    page.getByText(/This is taking longer than expected/),
+  ).toBeVisible();
   await page.getByRole('button', { name: 'Cancel' }).click();
   await expect(
     page.getByText('Quiz generation was cancelled.', {
@@ -521,6 +520,12 @@ test('study groups show recommendations, chips and membership action', async ({
 }) => {
   await page.route('**/api/v1/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/group-invitations'))
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: [] }),
+      });
     const body = path.endsWith('/auth/me')
       ? {
           user: {
@@ -571,7 +576,7 @@ test('study groups show recommendations, chips and membership action', async ({
   ).toBeVisible();
   await expect(page.getByText('Python Circle')).toBeVisible();
   await expect(page.getByText('Matches your languages')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Join' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Join group' })).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });
 

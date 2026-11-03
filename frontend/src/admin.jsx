@@ -1,16 +1,22 @@
+import { appFetch } from './http.js';
 import React, { useEffect, useState } from 'react';
+import { AdminUsers } from './admin-users.jsx';
+import { AdminAccessSetup } from './admin-security.jsx';
 
 /** Read-only summaries and audited platform controls for administrators. */
 
 const adminApi = async (path, options = {}) => {
-  const response = await fetch(`/api/v1/admin${path}`, {
+  const response = await appFetch(`/api/v1/admin${path}`, {
     credentials: 'include',
     ...options,
     headers: { 'content-type': 'application/json', ...(options.headers || {}) },
   });
   const body = response.status === 204 ? null : await response.json();
   if (!response.ok)
-    throw new Error(body?.error?.message || 'The admin request failed.');
+    throw Object.assign(
+      new Error(body?.error?.message || 'The admin request failed.'),
+      { code: body?.error?.code },
+    );
   return body;
 };
 
@@ -25,7 +31,7 @@ function Metric({ label, value }) {
   );
 }
 
-export function AdminPage() {
+export function AdminPage({ user }) {
   const [tab, setTab] = useState('Overview');
   const [state, setState] = useState({
     loading: true,
@@ -56,6 +62,7 @@ export function AdminPage() {
           setState({
             loading: false,
             error: cause.message,
+            errorCode: cause.code,
             data: null,
             endpoint,
           }),
@@ -124,64 +131,11 @@ export function AdminPage() {
           <Metric label="Suspended users" value={state.data.users.suspended} />
         </div>
       )}
+      {state.errorCode === 'ADMIN_MFA_REQUIRED' && (
+        <AdminAccessSetup onComplete={() => setRefresh((v) => v + 1)} />
+      )}
       {ready && tab === 'Users' && (
-        /* Account actions require server-side authorization and audit reasons. */
-        <div className="card admin-table-wrap">
-          <table className="admin-table">
-            <caption>Platform users</caption>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Role</th>
-                <th>Status</th>
-                <th>MFA</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(Array.isArray(state.data?.data) ? state.data.data : []).map(
-                (user) => (
-                  <tr key={user.user_id}>
-                    <td>
-                      {user.full_name}
-                      <small>{user.email}</small>
-                    </td>
-                    <td>{user.role}</td>
-                    <td>{user.account_status}</td>
-                    <td>{user.mfa_enabled ? 'Enabled' : 'Not enabled'}</td>
-                    <td className="admin-actions">
-                      <button
-                        onClick={() =>
-                          act(`/users/${user.user_id}`, {
-                            action:
-                              user.account_status === 'active'
-                                ? 'suspend'
-                                : 'activate',
-                            reason: 'Account administration',
-                          })
-                        }
-                      >
-                        {user.account_status === 'active'
-                          ? 'Suspend'
-                          : 'Activate'}
-                      </button>
-                      <button
-                        onClick={() =>
-                          act(`/users/${user.user_id}`, {
-                            action: 'revoke_sessions',
-                            reason: 'Security session reset',
-                          })
-                        }
-                      >
-                        Revoke sessions
-                      </button>
-                    </td>
-                  </tr>
-                ),
-              )}
-            </tbody>
-          </table>
-        </div>
+        <AdminUsers currentUserId={user?.userId || user?.user_id} />
       )}
       {ready && tab === 'Modules' && (
         <div className="card admin-list">

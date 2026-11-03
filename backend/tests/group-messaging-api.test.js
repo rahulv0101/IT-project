@@ -34,6 +34,26 @@ describe('study group messaging', () => {
     expect(empty.status).toBe(200);
     expect(empty.body.data).toEqual([]);
   });
+  it('uses chronology rather than random UUID order for polling cursors', async () => {
+    const older = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+    const newer = '00000000-0000-4000-8000-000000000001';
+    await pool.query(
+      "INSERT INTO group_messages(message_id,group_id,author_id,body,created_at) VALUES($1,$3,$4,'Earlier message',now()-interval '2 days'),($2,$3,$4,'Later message',now()-interval '1 day')",
+      [older, newer, f.groupId, f.member.id],
+    );
+    const r = await call('member', 'get', `${base()}/messages`, {
+      after: older,
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.data.map((m) => m.message_id)).toContain(newer);
+    expect(
+      (
+        await call('member', 'get', `${base()}/messages`, {
+          after: '00000000-0000-4000-8000-000000000009',
+        })
+      ).status,
+    ).toBe(422);
+  });
   it('non-members cannot read and lecturers are read-only', async () => {
     expect((await call('outsider', 'get', `${base()}/messages`)).status).toBe(
       403,

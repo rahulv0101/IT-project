@@ -1,5 +1,9 @@
 // @ts-nocheck - this suite drives runtime Express routes and dynamic fixtures.
 import 'dotenv/config';
+import {
+  networkRouteSpecs,
+  assertNetworkRoute,
+} from './helpers/network-cases.js';
 import crypto from 'node:crypto';
 import { hashEmailCode } from '../src/email-codes.js';
 import path from 'node:path';
@@ -340,6 +344,12 @@ const specs = {
   ],
   ...sessionRouteSpecs,
   ...messagingRouteSpecs,
+  ...networkRouteSpecs,
+  'POST /api/v1/admin/users': ['/api/v1/admin/users', 'admin'],
+  'DELETE /api/v1/admin/users/:userId': [
+    '/api/v1/admin/users/:userId',
+    'admin',
+  ],
   'GET /api/v1/admin/dashboard': ['/api/v1/admin/dashboard', 'admin'],
   'GET /api/v1/admin/users': ['/api/v1/admin/users', 'admin'],
   'POST /api/v1/admin/lecturers': ['/api/v1/admin/lecturers', 'admin'],
@@ -1086,6 +1096,28 @@ async function assertAdminRoute(route, [template]) {
   const [method] = route.split(' ');
   let path = pathFor(template);
   let body = {};
+  if (route === 'DELETE /api/v1/admin/users/:userId') {
+    const email = `matrix-delete-${crypto.randomUUID()}@example.com`;
+    const target = (
+      await pool.query(
+        "INSERT INTO users(email,password_hash,role,full_name) VALUES($1,'unused','student','Disposable Matrix') RETURNING user_id",
+        [email],
+      )
+    ).rows[0].user_id;
+    path = `/api/v1/admin/users/${target}`;
+    body = {
+      confirmationEmail: email,
+      reason: 'Remove disposable test account',
+    };
+  }
+  if (route === 'POST /api/v1/admin/users')
+    body = {
+      email: `matrix-user-${crypto.randomUUID()}@example.com`,
+      temporaryPassword: 'TemporaryPassword1!',
+      firstName: 'Matrix',
+      role: 'student',
+      reason: 'Provision test account',
+    };
   if (route === 'POST /api/v1/admin/lecturers')
     body = {
       email: `matrix-lecturer-${Date.now()}@example.com`,
@@ -1145,9 +1177,11 @@ async function assertRoute(route, [template, successRole]) {
   if (
     route.startsWith('GET /api/v1/admin/') ||
     route.startsWith('POST /api/v1/admin/') ||
-    route.startsWith('PATCH /api/v1/admin/')
+    route.startsWith('PATCH /api/v1/admin/') ||
+    route.startsWith('DELETE /api/v1/admin/')
   )
     return assertAdminRoute(route, [template, successRole]);
+  if (networkRouteSpecs[route]) return assertNetworkRoute(route, app, pool);
   if (sessionRouteSpecs[route]) return assertSessionRoute(route, app, pool);
   if (messagingRouteSpecs[route]) return assertMessagingRoute(route, app, pool);
   const [method] = route.split(' ');
@@ -1335,7 +1369,7 @@ async function assertRoute(route, [template, successRole]) {
 describe('executable route authorization matrix', () => {
   beforeAll(createFixture);
   it('derives every route and requires a concrete assertion body', () => {
-    expect(routeInventory.length).toBe(133);
+    expect(routeInventory.length).toBe(145);
     expect(Object.keys(specs).sort()).toEqual([...routeInventory].sort());
     for (const route of routeInventory) {
       expect(specs[route]).toBeTruthy();

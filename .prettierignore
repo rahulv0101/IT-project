@@ -6,3 +6,6 @@ uploads/
 coverage/
 docs/dev-mail/
 docs/runtime-logs/
+backups/
+.vercel/
+.env*

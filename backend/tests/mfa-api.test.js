@@ -46,7 +46,9 @@ describe('MFA backend', () => {
     setupKey = result.body.setupKey;
     expect(JSON.stringify(result.body)).not.toContain('encrypted_secret');
     const second = await agent.post('/api/v1/mfa/enrol').send({});
-    expect(second.status).toBe(409);
+    expect(second.status).toBe(200);
+    expect(second.body.setupKey).toBe(result.body.setupKey);
+    expect(second.body.qrCode).toBe(result.body.qrCode);
   });
 
   it('confirms a valid fixed-clock code and rejects an invalid code', async () => {

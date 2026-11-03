@@ -337,3 +337,17 @@ eight-question generation**: three attempts failed; no quiz saved. Mock browser
 evidence must not be substituted for this outstanding real-model requirement.
 
 FR-23 polish evidence (2026-11-02): three added Memory Match API tests prove randomised question sampling, no duplicate answer text on a board, and a distinct-answer six-pair minimum; the games hub accessible-name change is covered by updated `frontend/src/main.test.jsx` queries.
+
+### 2026-11-03 user change request
+
+| Requested behavior                                            | Implementation                                                            | Verification                                                                                                        |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Admin adds and deletes users                                  | `admin/accounts.js`, `admin-users.jsx`, migration 029                     | `account-management-api.test.js`, executable authorization matrix, browser admin CRUD                               |
+| Students message one another privately                        | `groups/student-network.js`, `student-network.jsx`                        | Participant/role boundaries, text/rate limits, ordered history/read tests; two-context browser messaging            |
+| Discover groups and invite students                           | Membership filters, invitations, member roster and leadership handover    | `student-network-api.test.js`; consent, private access, enrolment and handover cases; browser invitation acceptance |
+| Lecturer question/answer review without games/labs navigation | Role route catalogue and `quiz-review.jsx`                                | Role routing unit tests, readonly answer rendering, live API/browser review                                         |
+| Remove Profile email/MFA panels                               | Shared Profile component                                                  | All-three-role component assertions and navigation sweep; existing MFA login regression retained                    |
+| Consistent navigation and wording                             | Browser hash history, role defaults, game/AI messages, group chat refresh | Route round trips, browser refresh/back; chronology/stale-response/dedup regressions                                |
+| Mobile PWA                                                    | Manifest, icons, generated service worker, install/update/offline UI      | Browser manifest/icon/offline/cache privacy checks, Chromium/Firefox viewports and iPhone WebKit                    |
+
+Detailed results and deployment evidence: `docs/COLLABORATION_VALIDATION_2026-11-03.md`.

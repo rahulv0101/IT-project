@@ -120,10 +120,23 @@ try {
       '--config',
       'frontend/vite.config.js',
     ],
-    { cwd: process.cwd(), env, stdio: 'inherit', windowsHide: true },
+    {
+      cwd: process.cwd(),
+      env: { ...env, NODE_ENV: 'production' },
+      stdio: 'inherit',
+      windowsHide: true,
+    },
   );
   if (build.status !== 0)
     throw new Error(`frontend production build failed with ${build.status}`);
+
+  const pwa = spawnSync(process.execPath, ['scripts/build-pwa.mjs'], {
+    cwd: process.cwd(),
+    env,
+    stdio: 'inherit',
+    windowsHide: true,
+  });
+  if (pwa.status !== 0) throw new Error('PWA build failed');
 
   const commands = [
     [process.execPath, ['backend/scripts/session-reminders.js']],

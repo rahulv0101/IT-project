@@ -2834,7 +2834,7 @@ input[type='radio'] {
   color: #14213d !important;
 }
 .success {
-  color: #2f8f5b;
+  color: #216640;
   font-weight: 700;
 }
 @media (max-width: 760px) {
@@ -2901,4 +2901,41 @@ input[type='radio'] {
 .auth-verification form {
   display: grid;
   gap: 16px;
+}
+
+.pwa-status {
+  padding: 10px max(16px, env(safe-area-inset-right));
+  background: #edf0ff;
+  color: #14213d;
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  border-bottom: 1px solid #d8dff0;
+}
+.pwa-status p {
+  margin: 0;
+}
+.pwa-status button {
+  min-height: 44px;
+}
+.pwa-status summary {
+  cursor: pointer;
+  padding: 8px 0;
+}
+.shell > main {
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
+}
+button:disabled {
+  cursor: not-allowed;
+}
+@media (max-width: 600px) {
+  .pwa-status {
+    justify-content: flex-start;
+    font-size: 14px;
+  }
+  .shell > main {
+    min-width: 0;
+  }
 }

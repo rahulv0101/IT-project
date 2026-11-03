@@ -17,6 +17,33 @@ try {
   const before = (
     await pool.query(`SELECT count(*)::int AS count FROM schema_migrations`)
   ).rows[0].count;
+  const students = (
+    await pool.query(
+      "SELECT user_id FROM users WHERE role='student' ORDER BY user_id LIMIT 2",
+    )
+  ).rows;
+  if (students.length === 2) {
+    const conversation = (
+      await pool.query(
+        'INSERT INTO direct_conversations(student_one,student_two) VALUES($1,$2) ON CONFLICT(student_one,student_two) DO UPDATE SET student_one=EXCLUDED.student_one RETURNING conversation_id',
+        students.map((s) => s.user_id),
+      )
+    ).rows[0];
+    await pool.query(
+      "INSERT INTO direct_messages(conversation_id,sender_id,message_order,body) SELECT $1,$2,COALESCE(MAX(message_order),0)+1,'Backup preserves private messages' FROM direct_messages WHERE conversation_id=$1",
+      [conversation.conversation_id, students[0].user_id],
+    );
+    const group = (
+      await pool.query(
+        'SELECT group_id FROM study_groups ORDER BY group_id LIMIT 1',
+      )
+    ).rows[0];
+    if (group)
+      await pool.query(
+        "INSERT INTO group_invitations(group_id,inviter_id,invitee_id) VALUES($1,$2,$3) ON CONFLICT(group_id,invitee_id) WHERE status='pending' DO NOTHING",
+        [group.group_id, students[0].user_id, students[1].user_id],
+      );
+  }
   await createBackup(filePath);
   const original = JSON.parse(await readFile(filePath, 'utf8'));
   if (

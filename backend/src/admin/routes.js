@@ -1,5 +1,6 @@
 // @ts-nocheck - Express route dependencies and PostgreSQL rows are runtime-shaped.
 import bcrypt from 'bcryptjs';
+import { registerAccountManagement } from './accounts.js';
 import { z } from 'zod';
 import { noProfanity, profanityMessage } from '../profanity/index.js';
 
@@ -76,8 +77,16 @@ export function registerAdminRoutes({
     }
     next();
   };
-  const audit = async (req, action, targetType, targetId, why, details = {}) =>
-    pool.query(
+  const audit = async (
+    req,
+    action,
+    targetType,
+    targetId,
+    why,
+    details = {},
+    db = pool,
+  ) =>
+    db.query(
       `INSERT INTO admin_audit_logs(admin_id,action,target_type,target_id,reason,details,request_id)
        VALUES($1,$2,$3,$4,$5,$6,$7)`,
       [
@@ -92,6 +101,16 @@ export function registerAdminRoutes({
     );
   const admin = [requireAuth, requireAdmin];
 
+  registerAccountManagement({
+    app,
+    pool,
+    admin,
+    error,
+    requestId,
+    audit,
+    reason,
+  });
+
   app.get('/api/v1/admin/dashboard', ...admin, async (req, res, next) => {
     try {
       if (!parse(z.object({}).strict(), req.query, req, res)) return;
@@ -103,7 +122,7 @@ export function registerAdminRoutes({
               count(*) FILTER (WHERE role='lecturer')::int lecturers,
               count(*) FILTER (WHERE role='admin')::int admins,
               count(*) FILTER (WHERE account_status='suspended')::int suspended
-             FROM users`,
+             FROM users WHERE account_status<>'deleted'`,
           ),
           pool.query('SELECT count(*)::int total FROM modules'),
           pool.query(
@@ -136,7 +155,14 @@ export function registerAdminRoutes({
 
   app.get('/api/v1/admin/users', ...admin, async (req, res, next) => {
     try {
-      const query = parse(pageQuery, req.query, req, res);
+      const query = parse(
+        pageQuery.extend({
+          role: z.enum(['student', 'lecturer', 'admin']).optional(),
+        }),
+        req.query,
+        req,
+        res,
+      );
       if (!query) return;
       const search = query.search ? `%${query.search}%` : null;
       const result = await pool.query(
@@ -145,10 +171,15 @@ export function registerAdminRoutes({
                 EXISTS(SELECT 1 FROM mfa_credentials mc WHERE mc.user_id=u.user_id AND mc.enabled=true) AS mfa_enabled,
                 count(*) OVER()::int total
            FROM users u
-          WHERE ($1::text IS NULL OR u.email ILIKE $1 OR u.full_name ILIKE $1)
+          WHERE u.account_status<>'deleted' AND ($1::text IS NULL OR u.email ILIKE $1 OR u.full_name ILIKE $1) AND ($4::text IS NULL OR u.role::text=$4)
           ORDER BY u.created_date DESC,u.user_id
           LIMIT $2 OFFSET $3`,
-        [search, query.pageSize, (query.page - 1) * query.pageSize],
+        [
+          search,
+          query.pageSize,
+          (query.page - 1) * query.pageSize,
+          query.role || null,
+        ],
       );
       res.json({
         data: result.rows.map(({ total: _total, ...row }) => row),
@@ -219,6 +250,8 @@ export function registerAdminRoutes({
   });
 
   app.patch('/api/v1/admin/users/:userId', ...admin, async (req, res, next) => {
+    const client = await pool.connect();
+    let transactionOpen = false;
     try {
       const params = parse(
         z.object({ userId: z.string().uuid() }).strict(),
@@ -243,7 +276,33 @@ export function registerAdminRoutes({
         res,
       );
       if (!params || !data) return;
-      if (params.userId === req.user.userId && data.action === 'suspend')
+      await client.query('BEGIN');
+      transactionOpen = true;
+      await client.query(
+        "SELECT user_id FROM users WHERE role='admin' ORDER BY user_id FOR UPDATE",
+      );
+      if (
+        !(
+          await client.query(
+            "SELECT 1 FROM users WHERE user_id=$1 AND account_status='active'",
+            [req.user.userId],
+          )
+        ).rowCount
+      ) {
+        await client.query('ROLLBACK');
+        transactionOpen = false;
+        return error(
+          res,
+          403,
+          'FORBIDDEN',
+          'Administrator access is required.',
+          requestId(req),
+        );
+      }
+      if (
+        params.userId.toLowerCase() === req.user.userId &&
+        data.action === 'suspend'
+      )
         return error(
           res,
           409,
@@ -251,14 +310,14 @@ export function registerAdminRoutes({
           'You cannot suspend your own account.',
           requestId(req),
         );
-      const target = await pool.query(
-        'SELECT user_id,role,account_status FROM users WHERE user_id=$1',
+      const target = await client.query(
+        "SELECT user_id,role,account_status FROM users WHERE user_id=$1 AND account_status<>'deleted'",
         [params.userId],
       );
       if (!target.rowCount)
         return error(res, 404, 'NOT_FOUND', 'User not found.', requestId(req));
       if (data.action === 'suspend' && target.rows[0].role === 'admin') {
-        const active = await pool.query(
+        const active = await client.query(
           "SELECT count(*)::int count FROM users WHERE role='admin' AND account_status='active'",
         );
         if (active.rows[0].count <= 1)
@@ -271,27 +330,27 @@ export function registerAdminRoutes({
           );
       }
       if (data.action === 'activate')
-        await pool.query(
+        await client.query(
           "UPDATE users SET account_status='active' WHERE user_id=$1",
           [params.userId],
         );
       if (data.action === 'suspend') {
-        await pool.query(
+        await client.query(
           "UPDATE users SET account_status='suspended' WHERE user_id=$1",
           [params.userId],
         );
-        await pool.query(
+        await client.query(
           'UPDATE sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1',
           [params.userId],
         );
       }
       if (data.action === 'revoke_sessions')
-        await pool.query(
+        await client.query(
           'UPDATE sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1',
           [params.userId],
         );
       if (data.action === 'require_password_reset')
-        await pool.query(
+        await client.query(
           'UPDATE users SET requires_password_reset=true WHERE user_id=$1',
           [params.userId],
         );
@@ -301,10 +360,19 @@ export function registerAdminRoutes({
         'user',
         params.userId,
         data.reason,
+        {},
+        client,
       );
+      await client.query('COMMIT');
+      transactionOpen = false;
       res.json({ success: true });
     } catch (cause) {
+      await client.query('ROLLBACK');
+      transactionOpen = false;
       next(cause);
+    } finally {
+      if (transactionOpen) await client.query('ROLLBACK');
+      client.release();
     }
   });
 

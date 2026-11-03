@@ -5,6 +5,8 @@ process.env.EMAIL_OTP_SECRET = 'offline-tests-only-email-verification-secret';
 
 const databaseTests = [
   'backend/tests/admin-api.test.js',
+  'backend/tests/student-network-api.test.js',
+  'backend/tests/account-management-api.test.js',
   'backend/tests/group-sessions-api.test.js',
   'backend/tests/group-messaging-api.test.js',
   'backend/tests/ai-worker.test.js',

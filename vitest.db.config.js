@@ -13,6 +13,8 @@ export default defineConfig({
   test: {
     include: [
       'backend/tests/admin-api.test.js',
+      'backend/tests/student-network-api.test.js',
+      'backend/tests/account-management-api.test.js',
       'backend/tests/group-sessions-api.test.js',
       'backend/tests/group-messaging-api.test.js',
       'backend/tests/study-groups-api.test.js',

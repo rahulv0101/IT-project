@@ -1,7 +1,11 @@
 // @ts-nocheck - Express route metadata is runtime-specific.
+import { studentNetworkRoutes } from './groups/student-network.js';
+import { accountManagementRoutes } from './admin/accounts.js';
 // Every API route must have an explicit entry. This is intentionally data-only so
 // authorization policy can be reviewed without reading handler implementation.
 const routePolicies = {
+  ...studentNetworkRoutes,
+  ...accountManagementRoutes,
   'GET /api/v1/admin/dashboard': { auth: 'admin' },
   'GET /api/v1/admin/users': { auth: 'admin' },
   'POST /api/v1/admin/lecturers': { auth: 'admin' },

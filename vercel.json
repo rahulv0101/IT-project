@@ -12,6 +12,14 @@
   },
   "routes": [
     {
+      "src": "/sw\\.js",
+      "headers": {
+        "Cache-Control": "no-cache",
+        "Service-Worker-Allowed": "/"
+      },
+      "continue": true
+    },
+    {
       "src": "/api/v1/.*",
       "dest": "/api/index.js"
     },

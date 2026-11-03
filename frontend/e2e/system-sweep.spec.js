@@ -124,7 +124,7 @@ test('registration matches the branch and verifies a six-digit email code', asyn
   expect(errors).toEqual([]);
 });
 
-test('MFA enrolment, confirmation, recovery login and disable work end to end', async ({
+test('existing MFA recovery login works while profile security controls stay removed', async ({
   page,
 }, info) => {
   const email = `mfa-sweep-${info.project.name}-${Date.now()}@example.com`;
@@ -150,19 +150,18 @@ test('MFA enrolment, confirmation, recovery login and disable work end to end', 
   ).toBe(200);
   await page.goto('/');
   await page.getByRole('button', { name: 'Profile', exact: true }).click();
-  await page.getByRole('button', { name: 'Enrol MFA' }).click();
-  const key = await page.locator('.profile-stack code').textContent();
-  await page
-    .getByLabel('Setup authenticator code')
-    .fill(totpAt(key, Date.now()));
-  await page.getByRole('button', { name: 'Confirm MFA' }).click();
-  await expect(
-    page.getByText('MFA is enabled.', { exact: true }),
-  ).toBeVisible();
-  const codes = (await page.getByText(/^Recovery codes:/).textContent())
-    .split(':')[1]
-    .trim()
-    .split(', ');
+  await expect(page.getByRole('button', { name: 'Enrol MFA' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Change email' })).toHaveCount(
+    0,
+  );
+  const enrol = await page.request.post('/api/v1/mfa/enrol', { data: {} });
+  expect(enrol.status()).toBe(200);
+  const { setupKey: key } = await enrol.json();
+  const confirmed = await page.request.post('/api/v1/mfa/confirm', {
+    data: { code: totpAt(key, Date.now()) },
+  });
+  expect(confirmed.status()).toBe(200);
+  const { recoveryCodes: codes } = await confirmed.json();
   expect(codes).toHaveLength(10);
   await page.getByRole('button', { name: 'Log out', exact: true }).click();
   await page.getByLabel('Email', { exact: true }).fill(email);
@@ -182,12 +181,13 @@ test('MFA enrolment, confirmation, recovery login and disable work end to end', 
     page.getByRole('button', { name: 'Log out', exact: true }),
   ).toBeVisible();
   await page.getByRole('button', { name: 'Profile', exact: true }).click();
-  await page.getByLabel('MFA password').fill('CorrectHorse9!');
-  await page.getByLabel('Authenticator or recovery code').fill(codes[1]);
-  await page.getByRole('button', { name: 'Disable MFA' }).click();
-  await expect(
-    page.getByText('MFA is not enabled.', { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Disable MFA' })).toHaveCount(
+    0,
+  );
+  const disabled = await page.request.post('/api/v1/mfa/disable', {
+    data: { password: 'CorrectHorse9!', recoveryCode: codes[1] },
+  });
+  expect(disabled.status()).toBe(200);
 });
 
 for (const [role, email] of [

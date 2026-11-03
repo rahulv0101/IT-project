@@ -19,6 +19,7 @@ import rateLimit from 'express-rate-limit';
 import multer from 'multer';
 import QRCode from 'qrcode';
 import { z } from 'zod';
+import { registerStudentNetworkRoutes } from './groups/student-network.js';
 import { sendVerificationEmail } from './email.js';
 import {
   issueEmailCode,
@@ -548,6 +549,7 @@ const groupQuerySchema = z.object({
   recommended: z.enum(['true', 'false']).optional(),
   sort: z.enum(['recommended', 'newest', 'name']).default('recommended'),
   refresh: z.coerce.number().int().optional(),
+  membership: z.enum(['all', 'joined', 'available']).default('all'),
 });
 const groupUpdateSchema = z
   .object({
@@ -839,13 +841,10 @@ app.post('/api/v1/mfa/enrol', requireAuth, async (req, res, next) => {
       );
     if (!parse(z.object({}).strict(), req.body || {}, req, res)) return;
     const existing = await pool.query(
-      'SELECT enabled,confirmed_at FROM mfa_credentials WHERE user_id=$1',
+      'SELECT enabled,confirmed_at,encrypted_secret FROM mfa_credentials WHERE user_id=$1',
       [req.user.userId],
     );
-    if (
-      existing.rowCount &&
-      (existing.rows[0].enabled || !existing.rows[0].confirmed_at)
-    )
+    if (existing.rowCount && existing.rows[0].enabled)
       return error(
         res,
         409,
@@ -853,13 +852,19 @@ app.post('/api/v1/mfa/enrol', requireAuth, async (req, res, next) => {
         'MFA enrolment already exists.',
         requestId(req),
       );
-    const secret = randomTotpSecret();
-    if (existing.rowCount)
+    const resuming =
+      existing.rowCount &&
+      !existing.rows[0].enabled &&
+      !existing.rows[0].confirmed_at;
+    const secret = resuming
+      ? decryptSecret(existing.rows[0].encrypted_secret)
+      : randomTotpSecret();
+    if (existing.rowCount && !resuming)
       await pool.query(
         'UPDATE mfa_credentials SET encrypted_secret=$2,enabled=false,confirmed_at=NULL,last_used_totp_step=NULL WHERE user_id=$1',
         [req.user.userId, encryptSecret(secret)],
       );
-    else
+    else if (!existing.rowCount)
       await pool.query(
         'INSERT INTO mfa_credentials(user_id,encrypted_secret) VALUES($1,$2)',
         [req.user.userId, encryptSecret(secret)],
@@ -989,6 +994,14 @@ app.get('/api/v1/groups', requireAuth, async (req, res, next) => {
     } else {
       conditions.push(`m.lecturer_id=$1`);
     }
+    if (query.membership === 'joined')
+      conditions.push(
+        'EXISTS (SELECT 1 FROM group_members mine WHERE mine.group_id=g.group_id AND mine.student_id=$1)',
+      );
+    if (query.membership === 'available')
+      conditions.push(
+        'NOT EXISTS (SELECT 1 FROM group_members mine WHERE mine.group_id=g.group_id AND mine.student_id=$1)',
+      );
     if (query.moduleId) {
       params.push(query.moduleId);
       conditions.push(`g.module_id=$${params.length}`);
@@ -1402,9 +1415,16 @@ app.post(
   requireAuth,
   requireRole('student'),
   async (req, res, next) => {
+    const client = await pool.connect();
+    let committed = false;
     try {
+      await client.query('BEGIN');
+      await client.query(
+        'SELECT group_id FROM study_groups WHERE group_id=$1 FOR UPDATE',
+        [req.params.groupId],
+      );
       if (!parse(z.object({}).strict(), req.body || {}, req, res, 422)) return;
-      const member = await pool.query(
+      const member = await client.query(
         'SELECT 1 FROM group_members WHERE group_id=$1 AND student_id=$2',
         [req.params.groupId, req.user.userId],
       );
@@ -1416,7 +1436,7 @@ app.post(
           'You are not a member of this study group.',
           requestId(req),
         );
-      const leader = await pool.query(
+      const leader = await client.query(
         'SELECT role FROM group_leaders WHERE group_id=$1 AND student_id=$2',
         [req.params.groupId, req.user.userId],
       );
@@ -1428,13 +1448,22 @@ app.post(
           'Hand over leadership before leaving this group.',
           requestId(req),
         );
-      await pool.query(
+      await client.query(
+        "DELETE FROM group_leaders WHERE group_id=$1 AND student_id=$2 AND role='co-leader'",
+        [req.params.groupId, req.user.userId],
+      );
+      await client.query(
         'DELETE FROM group_members WHERE group_id=$1 AND student_id=$2',
         [req.params.groupId, req.user.userId],
       );
+      await client.query('COMMIT');
+      committed = true;
       res.json({ left: true });
     } catch (e) {
       next(e);
+    } finally {
+      if (!committed) await client.query('ROLLBACK');
+      client.release();
     }
   },
 );
@@ -2131,11 +2160,14 @@ app.post(
   '/api/v1/modules/:moduleId/groups',
   requireAuth,
   async (req, res, next) => {
+    const client = await pool.connect();
+    let committed = false;
     try {
+      await client.query('BEGIN');
       const data = parse(groupSchema, req.body, req, res);
       if (!data || !visibleText('groupName', req, res, data.groupName)) return;
-      const mod = await pool.query(
-        'SELECT module_id FROM modules WHERE module_id=$1',
+      const mod = await client.query(
+        'SELECT module_id,lecturer_id FROM modules WHERE module_id=$1',
         [req.params.moduleId],
       );
       if (!mod.rowCount)
@@ -2146,28 +2178,60 @@ app.post(
           'Module not found.',
           requestId(req),
         );
-      if (req.user.role !== 'lecturer')
-        await pool.query(
-          'INSERT INTO enrollments(student_id,module_id) VALUES($1,$2) ON CONFLICT DO NOTHING',
-          [req.user.userId, req.params.moduleId],
+      if (
+        req.user.role === 'lecturer' &&
+        mod.rows[0].lecturer_id !== req.user.userId
+      )
+        return error(
+          res,
+          403,
+          'FORBIDDEN',
+          'You do not manage this module.',
+          requestId(req),
         );
-      const group = await pool.query(
+      if (req.user.role === 'student') {
+        const enrolled = await client.query(
+          'SELECT 1 FROM enrollments WHERE module_id=$1 AND student_id=$2',
+          [req.params.moduleId, req.user.userId],
+        );
+        if (!enrolled.rowCount)
+          return error(
+            res,
+            403,
+            'NOT_ENROLLED',
+            'Enrol in the module before creating a study group.',
+            requestId(req),
+          );
+      } else if (req.user.role !== 'lecturer')
+        return error(
+          res,
+          403,
+          'FORBIDDEN',
+          'Student or lecturer access is required.',
+          requestId(req),
+        );
+      const group = await client.query(
         'INSERT INTO study_groups(module_id,created_by,group_name) VALUES($1,$2,$3) RETURNING *',
         [req.params.moduleId, req.user.userId, data.groupName],
       );
       if (req.user.role === 'student')
-        await pool.query(
+        await client.query(
           'INSERT INTO group_members(group_id,student_id) VALUES($1,$2)',
           [group.rows[0].group_id, req.user.userId],
         );
       if (req.user.role === 'student')
-        await pool.query(
+        await client.query(
           `INSERT INTO group_leaders(group_id,student_id,role) VALUES($1,$2,'leader') ON CONFLICT DO NOTHING`,
           [group.rows[0].group_id, req.user.userId],
         );
+      await client.query('COMMIT');
+      committed = true;
       res.status(201).json({ group: group.rows[0] });
     } catch (e) {
       next(e);
+    } finally {
+      if (!committed) await client.query('ROLLBACK');
+      client.release();
     }
   },
 );
@@ -2179,7 +2243,7 @@ app.post(
     try {
       if (!parse(z.object({}).strict(), req.body || {}, req, res)) return;
       const group = await pool.query(
-        'SELECT module_id FROM study_groups WHERE group_id=$1',
+        'SELECT module_id,visibility FROM study_groups WHERE group_id=$1',
         [req.params.groupId],
       );
       if (!group.rowCount)
@@ -2190,6 +2254,32 @@ app.post(
           'Study group not found.',
           requestId(req),
         );
+      const enrolled = await pool.query(
+        'SELECT 1 FROM enrollments WHERE student_id=$1 AND module_id=$2',
+        [req.user.userId, group.rows[0].module_id],
+      );
+      if (!enrolled.rowCount)
+        return error(
+          res,
+          403,
+          'NOT_ENROLLED',
+          'Enrol in the module before joining its study groups.',
+          requestId(req),
+        );
+      if (group.rows[0].visibility !== 'module') {
+        const member = await pool.query(
+          'SELECT 1 FROM group_members WHERE group_id=$1 AND student_id=$2',
+          [req.params.groupId, req.user.userId],
+        );
+        if (!member.rowCount)
+          return error(
+            res,
+            403,
+            'INVITATION_REQUIRED',
+            'Accept an invitation to join this private study group.',
+            requestId(req),
+          );
+      }
       await pool.query(
         'INSERT INTO group_members(group_id,student_id) VALUES($1,$2) ON CONFLICT DO NOTHING',
         [req.params.groupId, req.user.userId],
@@ -3263,19 +3353,25 @@ app.get(
       );
       const search = String(req.query.search || '').trim();
       const result = await pool.query(
-        `SELECT quiz_id,title,is_competitive,closes_at,status
+        `SELECT quiz_id,title,is_competitive,closes_at,status,EXISTS(SELECT 1 FROM ai_generation_jobs j WHERE j.quiz_id=quizzes.quiz_id AND j.status='succeeded') AS ai_generated
          FROM quizzes
-         WHERE module_id=$1 AND status='published'
+         WHERE module_id=$1 AND ($5::boolean OR status='published')
            AND ($2='' OR title ILIKE '%' || $2 || '%')
          ORDER BY created_at DESC, quiz_id DESC
          LIMIT $3 OFFSET $4`,
-        [req.params.moduleId, search, pageSize, (page - 1) * pageSize],
+        [
+          req.params.moduleId,
+          search,
+          pageSize,
+          (page - 1) * pageSize,
+          req.user.role === 'lecturer',
+        ],
       );
       const total = await pool.query(
         `SELECT count(*)::int AS count FROM quizzes
-         WHERE module_id=$1 AND status='published'
+         WHERE module_id=$1 AND ($3::boolean OR status='published')
            AND ($2='' OR title ILIKE '%' || $2 || '%')`,
-        [req.params.moduleId, search],
+        [req.params.moduleId, search, req.user.role === 'lecturer'],
       );
       res.json({
         data: result.rows,
@@ -4778,6 +4874,7 @@ registerPixelRacerRoutes({ app, pool, requireAuth, error, requestId });
 registerTimerTriviaRoutes({ app, pool, requireAuth, error, requestId });
 registerSessionRoutes({ app, pool, requireAuth, error, requestId });
 registerMessagingRoutes({ app, pool, requireAuth, error, requestId });
+registerStudentNetworkRoutes({ app, pool, requireAuth, error, requestId });
 registerAdminRoutes({ app, pool, requireAuth, error, requestId });
 
 app.use((err, req, res, _next) => {

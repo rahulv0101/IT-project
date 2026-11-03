@@ -1,8 +1,9 @@
+import { appFetch } from './http.js';
 import React, { useEffect, useState } from 'react';
 import './study-sessions.css';
 
 async function api(path, method = 'GET', body) {
-  const r = await fetch(`/api/v1${path}`, {
+  const r = await appFetch(`/api/v1${path}`, {
     method,
     credentials: 'include',
     headers: { 'content-type': 'application/json' },

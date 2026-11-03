@@ -54,6 +54,11 @@ export default defineConfig({
   },
   projects: [
     {
+      name: 'webkit-mobile',
+      testMatch: 'collaboration.spec.js',
+      use: { ...devices['iPhone 13'], defaultBrowserType: 'webkit' },
+    },
+    {
       name: 'chromium-mobile',
       use: {
         ...devices['Desktop Chrome'],

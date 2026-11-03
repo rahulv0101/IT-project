@@ -9,7 +9,7 @@
     "seed:reset": "node backend/scripts/seed-reset.js",
     "setup:token": "node scripts/setup-token.mjs",
     "dev": "npm run setup:token && npm run build && concurrently \"node backend/src/index.js\" \"node scripts/run-python.mjs ai-service/run.py\" \"node backend/scripts/ai-worker.js\" \"node backend/scripts/session-reminders.js\" \"vite preview --config frontend/vite.config.js\"",
-    "build": "npm --prefix frontend run build",
+    "build": "npm --prefix frontend run build && node scripts/build-pwa.mjs",
     "db:migrate": "node backend/scripts/migrate.js",
     "db:test:reset": "node backend/scripts/reset-test-db.js",
     "db:setup-check": "node scripts/db-setup-check.mjs",

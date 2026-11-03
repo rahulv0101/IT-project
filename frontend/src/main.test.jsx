@@ -511,6 +511,8 @@ describe('Study groups frontend', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn((url) => {
+        if (url.includes('/group-invitations'))
+          return Promise.resolve(response({ data: [] }));
         if (url.includes('/groups'))
           return Promise.resolve(
             response({
@@ -541,7 +543,7 @@ describe('Study groups frontend', () => {
     expect(await screen.findByText('Python Circle')).toBeTruthy();
     expect(screen.getAllByText('Python').length).toBeGreaterThan(0);
     expect(screen.getByText(/Matches your languages/)).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Join' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Join group' })).toBeTruthy();
   });
 });
 
@@ -2179,7 +2181,7 @@ it('profile page loads, edits preferred languages, and shows unsaved changes', a
   vi.unstubAllGlobals();
 });
 
-it('profile page shows inline validation errors and MFA actions', async () => {
+it('profile page shows inline validation errors without email or MFA controls', async () => {
   cleanup();
   const profile = {
     user_id: 'profile-2',
@@ -2210,7 +2212,7 @@ it('profile page shows inline validation errors and MFA actions', async () => {
     });
   vi.stubGlobal('fetch', fetchMock);
   render(<ProfilePage user={profile} onUserChange={vi.fn()} />);
-  await screen.findByText('MFA is enabled.');
+  await screen.findByText('Edit profile');
   fireEvent.change(screen.getByLabelText('First name'), {
     target: { value: 'bad text' },
   });
@@ -2220,12 +2222,9 @@ it('profile page shows inline validation errors and MFA actions', async () => {
       "That text isn't allowed.",
     ),
   );
-  expect(screen.getByRole('button', { name: 'Disable MFA' })).toBeTruthy();
-  expect(
-    screen.getByRole('button', { name: 'Regenerate recovery codes' }),
-  ).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Disable MFA' }));
-  await waitFor(() => expect(screen.getByText('MFA updated.')).toBeTruthy());
+  expect(screen.queryByRole('button', { name: 'Disable MFA' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Change email' })).toBeNull();
+  expect(screen.queryByText('Multi-factor authentication')).toBeNull();
   vi.unstubAllGlobals();
 });
 

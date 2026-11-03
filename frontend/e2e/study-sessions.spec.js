@@ -112,7 +112,9 @@ test('study sessions: leader schedules, member RSVPs, calendars, notifications a
   await login('demo-student-2@example.com');
   await page.getByRole('button', { name: 'Study groups', exact: true }).click();
   const memberCard = page.locator('.group-card').filter({ hasText: groupName });
-  await memberCard.getByRole('button', { name: 'Join', exact: true }).click();
+  await memberCard
+    .getByRole('button', { name: 'Join group', exact: true })
+    .click();
   await memberCard
     .getByRole('button', { name: 'Group chat', exact: true })
     .click();

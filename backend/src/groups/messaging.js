@@ -152,7 +152,25 @@ export function registerMessagingRoutes({
           q.pageSize,
           (q.page - 1) * q.pageSize,
         ];
-        const after = q.after ? `AND m.message_id>$4` : '';
+        if (
+          q.after &&
+          !(
+            await db.query(
+              'SELECT 1 FROM group_messages WHERE group_id=$1 AND message_id=$2',
+              [req.params.groupId, q.after],
+            )
+          ).rowCount
+        )
+          return error(
+            res,
+            422,
+            'INVALID_CURSOR',
+            'Refresh the group chat and try again.',
+            requestId(req),
+          );
+        const after = q.after
+          ? `AND (m.created_at,m.message_id)>(SELECT created_at,message_id FROM group_messages WHERE message_id=$4 AND group_id=$1)`
+          : '';
         if (q.after) params.push(q.after);
         const rows = (
           await db.query(

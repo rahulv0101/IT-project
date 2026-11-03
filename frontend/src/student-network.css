@@ -1,0 +1,204 @@
+.messages-page {
+  display: grid;
+  grid-template-columns: minmax(250px, 320px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.messages-sidebar,
+.direct-thread,
+.admin-users {
+  min-width: 0;
+}
+.messages-sidebar h3 {
+  margin-top: 24px;
+}
+.conversation-list {
+  display: grid;
+  gap: 8px;
+}
+.conversation {
+  text-align: left;
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  padding: 12px;
+  background: #f7f8ff;
+  border: 1px solid #dce0f2;
+  border-radius: 10px;
+  color: #14213d;
+}
+.conversation.active {
+  border-color: #3b4bdb;
+  background: #edf0ff;
+}
+.conversation small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.student-directory {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+.student-directory li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.student-directory li > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.student-directory small {
+  display: block;
+}
+.direct-thread {
+  display: grid;
+  gap: 16px;
+}
+.direct-message-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  list-style: none;
+  padding: 0;
+  max-height: 55vh;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.direct-message-list li {
+  max-width: 90%;
+  border-radius: 12px;
+  padding: 12px 16px;
+  overflow-wrap: anywhere;
+  background: #edf0f8;
+  align-self: flex-start;
+}
+.direct-message-list li.sent {
+  background: #e7eaff;
+  align-self: flex-end;
+}
+.direct-message-list p {
+  white-space: pre-wrap;
+  margin: 6px 0;
+}
+.direct-message-list time {
+  font-size: 12px;
+  color: #4c586d;
+}
+.message-compose,
+.invite-form,
+.account-form,
+.delete-confirmation {
+  display: grid;
+  gap: 14px;
+}
+.message-compose textarea {
+  min-height: 100px;
+}
+.invitations-panel {
+  margin-bottom: 20px;
+}
+.invitation-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid #e2e5ee;
+}
+.invitation-row:last-of-type {
+  border: 0;
+}
+.group-invite {
+  margin-top: 12px;
+}
+.invite-form {
+  margin-top: 12px;
+}
+.group-invite label {
+  font-size: 14px;
+}
+.review-question {
+  margin-top: 18px;
+}
+.review-options {
+  padding-left: 22px;
+}
+.review-options li {
+  padding: 8px;
+  overflow-wrap: anywhere;
+}
+.correct-answer {
+  background: #edf8ef;
+  border-radius: 6px;
+  color: #17532e;
+}
+.review-question pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.admin-users > .section-heading {
+  align-items: center;
+}
+.admin-users .pagination {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16px;
+}
+.danger {
+  color: #a41919;
+  background: #fff0f0;
+  border: 1px solid #e4b3b3;
+}
+.account-form,
+.delete-confirmation {
+  margin: 16px 0;
+}
+.delete-confirmation {
+  border: 1px solid #e4b3b3;
+}
+@media (max-width: 1000px) {
+  .messages-page {
+    grid-template-columns: 1fr;
+  }
+  .conversation-list {
+    max-height: 220px;
+    overflow: auto;
+  }
+  .student-directory {
+    max-height: 300px;
+    overflow: auto;
+  }
+  .direct-message-list {
+    max-height: 55vh;
+  }
+}
+@media (max-width: 600px) {
+  .invitation-row {
+    display: grid;
+  }
+  .invitation-row .button-row {
+    flex-wrap: wrap;
+  }
+  .direct-message-list li {
+    max-width: 100%;
+  }
+  .admin-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .admin-users .pagination {
+    font-size: 13px;
+    gap: 6px;
+  }
+  .messages-page .card {
+    padding: 18px;
+  }
+}

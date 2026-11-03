@@ -1,3 +1,4 @@
+import { appFetch } from './http.js';
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
@@ -10,6 +11,19 @@ import {
 } from './study-sessions.jsx';
 import { GroupChat } from './group-chat.jsx';
 import { AdminPage } from './admin.jsx';
+import { PwaStatus } from './pwa.jsx';
+import { QuizReview } from './quiz-review.jsx';
+import {
+  ROLE_SCREENS,
+  navigationParent,
+  useWorkspaceNavigation,
+} from './navigation.js';
+import {
+  DirectMessages,
+  GroupInvitations,
+  InviteStudent,
+  GroupMembers,
+} from './student-network.jsx';
 
 /**
  * EduQuest single-page interface.
@@ -20,7 +34,7 @@ import { AdminPage } from './admin.jsx';
  */
 
 const api = async (path, options = {}) => {
-  const response = await fetch(`/api/v1${path}`, {
+  const response = await appFetch(`/api/v1${path}`, {
     credentials: 'include',
     ...options,
     headers: { 'content-type': 'application/json', ...(options.headers || {}) },
@@ -596,10 +610,17 @@ export function App() {
       ? new URLSearchParams(window.location.search).get('token') || ''
       : null,
   );
-  const [screen, setScreen] = useState('Dashboard');
-  const [quizId, setQuizId] = useState(null);
-  const [gameQuizId, setGameQuizId] = useState(null);
-  const [studySession, setStudySession] = useState(null);
+  const {
+    screen,
+    setScreen,
+    quizId,
+    setQuizId,
+    gameQuizId,
+    setGameQuizId,
+    studySession,
+    setStudySession,
+    reset: resetNavigation,
+  } = useWorkspaceNavigation(user?.role);
   const openStudySession = (groupId, sessionId) => {
     setStudySession({ groupId, sessionId });
     setScreen('Study sessions');
@@ -610,9 +631,6 @@ export function App() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
-  useEffect(() => {
-    if (user?.role === 'admin' && screen === 'Dashboard') setScreen('Admin');
-  }, [user, screen]);
   if (verificationToken !== null)
     return (
       <EmailVerification
@@ -637,37 +655,12 @@ export function App() {
         onBack={() => setUser(null)}
       />
     );
-  const studentScreens = [
-    'Dashboard',
-    'Modules',
-    'Resources',
-    'Study groups',
-    'Leaderboard',
-    'Quizzes',
-    'Games',
-    'Practice Labs',
-    'Profile',
-  ];
-  const lecturerScreens = [
-    'Study calendar',
-    'Modules',
-    'Resources',
-    'Quizzes',
-    'Games',
-    'Practice Labs',
-    'Analytics',
-    'Profile',
-  ];
-  const adminScreens = ['Admin', 'Profile'];
-  const screens =
-    user.role === 'student'
-      ? studentScreens
-      : user.role === 'admin'
-        ? adminScreens
-        : lecturerScreens;
+  const screens = ROLE_SCREENS[user.role] || [];
+  const activeNavigation = navigationParent(screen, user.role);
   const logout = async () => {
     await api('/auth/logout', { method: 'POST' }).catch(() => {});
     setUser(null);
+    resetNavigation();
   };
   return (
     <div className="shell">
@@ -681,10 +674,10 @@ export function App() {
         </p>
         {screens.map((item) => (
           <button
-            className={`nav ${screen === item ? 'active' : ''}`}
+            className={`nav ${activeNavigation === item ? 'active' : ''}`}
             key={item}
             aria-label={item}
-            aria-current={screen === item ? 'page' : undefined}
+            aria-current={activeNavigation === item ? 'page' : undefined}
             onClick={() => setScreen(item)}
           >
             {item}
@@ -706,7 +699,11 @@ export function App() {
                   ? 'ADMINISTRATION'
                   : 'LECTURER HUB'}
             </span>
-            <h1>{screen}</h1>
+            <h1>
+              {['Create quiz', 'Quiz editor', 'Quiz review'].includes(screen)
+                ? 'Quizzes'
+                : screen}
+            </h1>
             <p className="page-description">
               {screen === 'Dashboard'
                 ? 'A little progress, every day.'
@@ -741,9 +738,12 @@ export function App() {
             <Dashboard user={user} />
           </>
         )}
-        {screen === 'Admin' && user.role === 'admin' && <AdminPage />}
+        {screen === 'Admin' && user.role === 'admin' && (
+          <AdminPage user={user} />
+        )}
         {screen === 'Study sessions' && studySession && (
           <StudySessions
+            key={`${studySession.groupId}:${studySession.sessionId || ''}`}
             {...studySession}
             onBack={() =>
               setScreen(
@@ -754,7 +754,8 @@ export function App() {
         )}
         {screen === 'Modules' && <Modules user={user} />}
         {screen === 'Resources' && <Resources user={user} />}
-        {screen === 'Study groups' && (
+        {screen === 'Messages' && user.role === 'student' && <DirectMessages />}
+        {screen === 'Study groups' && user.role === 'student' && (
           <Groups user={user} onSession={openStudySession} />
         )}
         {screen === 'Study calendar' && user.role === 'lecturer' && (
@@ -765,7 +766,7 @@ export function App() {
         {screen === 'Profile' && (
           <ProfilePage user={user} onUserChange={setUser} />
         )}
-        {screen === 'Games' && (
+        {screen === 'Games' && user.role === 'student' && (
           <GamesPage
             user={user}
             onStartGame={(key, id) => {
@@ -782,10 +783,37 @@ export function App() {
             }}
           />
         )}
-        {screen === 'Practice Labs' && <PracticeLabs user={user} />}
+        {screen === 'Practice Labs' && user.role === 'student' && (
+          <PracticeLabs user={user} />
+        )}
+        {screen === 'Quiz review' && user.role === 'lecturer' && (
+          <QuizReview
+            quizId={quizId}
+            onBack={() => setScreen('Quizzes')}
+            onEdit={() => setScreen('Quiz editor')}
+          />
+        )}
+        {screen === 'Quiz editor' && user.role === 'lecturer' && (
+          <QuizEditor quizId={quizId} onDone={() => setScreen('Quizzes')} />
+        )}
+        {screen === 'Create quiz' && user.role === 'lecturer' && (
+          <QuizAuthoring
+            onDone={(id) => {
+              if (id) {
+                setQuizId(id);
+                setScreen('Quiz editor');
+              } else setScreen('Quizzes');
+            }}
+          />
+        )}
         {screen === 'Quizzes' && (
           <Quizzes
             user={user}
+            onCreate={() => setScreen('Create quiz')}
+            onReview={(id) => {
+              setQuizId(id);
+              setScreen('Quiz review');
+            }}
             onTake={(id) => {
               setQuizId(id);
               setScreen('Quiz');
@@ -1975,7 +2003,7 @@ export function Resources({ user }) {
     form.append('title', title);
     form.append('file', file);
     try {
-      await fetch(`/api/v1/modules/${moduleId}/resources`, {
+      await appFetch(`/api/v1/modules/${moduleId}/resources`, {
         method: 'POST',
         credentials: 'include',
         body: form,
@@ -2395,9 +2423,8 @@ export function ResourceRow({ resource, lecturer }) {
               (job.created_at &&
                 now - new Date(job.created_at).getTime() >= 60000)) && (
               <span className="field-error">
-                This is taking longer than expected. The AI service may be
-                unreachable, the model may be slow, or the worker may not be
-                running.
+                This is taking longer than expected. You can keep waiting, or
+                cancel and try again with fewer questions.
               </span>
             )}
           {['queued', 'running'].includes(job.status) && (
@@ -2412,7 +2439,7 @@ export function ResourceRow({ resource, lecturer }) {
                   AI_TIMEOUT:
                     'The AI took too long. Try fewer questions or a shorter resource.',
                   AI_PROVIDER_ERROR:
-                    'The AI could not generate a valid quiz. Check the AI service, then try again.',
+                    'The AI could not generate a valid quiz. Please try again.',
                   AI_OUTPUT_TEXT_NOT_ALLOWED:
                     'The generated quiz did not pass the quality checks. Please try again.',
                   DOCUMENT_EXTRACTION_FAILED:
@@ -2422,9 +2449,9 @@ export function ResourceRow({ resource, lecturer }) {
                   DOCUMENT_TYPE_NOT_SUPPORTED:
                     'AI generation currently supports PDF and text files. Please upload one of those formats.',
                   WORKER_TIMEOUT:
-                    'The generation worker stopped before finishing. Please try again.',
+                    'Quiz generation stopped before finishing. Please try again.',
                   QUEUE_TIMEOUT:
-                    'The job waited too long to start. Check that the AI worker is running, then try again.',
+                    'Quiz generation could not start in time. Please try again.',
                   CANCELLED: 'Quiz generation was cancelled.',
                 }[job.error_code] ||
                   'Quiz generation failed. Please try again.'}
@@ -2546,14 +2573,19 @@ export function ResourceRow({ resource, lecturer }) {
 export function Groups({ user, onSession }) {
   const modules = useData('/me/modules?page=1&pageSize=50&sort=code');
   const [search, setSearch] = useState('');
+  const [groupPage, setGroupPage] = useState(1);
   const [moduleId, setModuleId] = useState('');
   const [language, setLanguage] = useState('');
   const [recommended, setRecommended] = useState(false);
   const [sort, setSort] = useState('recommended');
+  const [membership, setMembership] = useState('all');
   const [refresh, setRefresh] = useState(0);
   const groups = useData(
-    `/groups?page=1&pageSize=20&search=${encodeURIComponent(search)}${moduleId ? `&moduleId=${moduleId}` : ''}${language ? `&language=${encodeURIComponent(language)}` : ''}${recommended ? '&recommended=true' : ''}&sort=${sort}&refresh=${refresh}`,
+    `/groups?page=${groupPage}&pageSize=20&search=${encodeURIComponent(search)}${moduleId ? `&moduleId=${moduleId}` : ''}${language ? `&language=${encodeURIComponent(language)}` : ''}${recommended ? '&recommended=true' : ''}&sort=${sort}&membership=${membership}&refresh=${refresh}`,
   );
+  useEffect(() => {
+    setGroupPage(1);
+  }, [search, moduleId, language, recommended, sort, membership]);
   const [form, setForm] = useState({
     moduleId: '',
     groupName: '',
@@ -2605,6 +2637,9 @@ export function Groups({ user, onSession }) {
   };
   return (
     <section className="groups-page">
+      {user.role === 'student' && (
+        <GroupInvitations onJoined={() => setRefresh((v) => v + 1)} />
+      )}
       {/* Filters and recommendations never expose private profile fields. */}
       <div className="card">
         <span className="eyebrow">COLLABORATE</span>
@@ -2613,6 +2648,17 @@ export function Groups({ user, onSession }) {
           Find classmates studying the same topics, languages and modules.
         </p>
         <div className="catalogue-controls">
+          <label>
+            Show groups
+            <select
+              value={membership}
+              onChange={(e) => setMembership(e.target.value)}
+            >
+              <option value="all">All groups in my modules</option>
+              <option value="available">Available groups to join</option>
+              <option value="joined">My groups</option>
+            </select>
+          </label>
           <input
             aria-label="Search groups"
             placeholder="Search groups"
@@ -2728,7 +2774,10 @@ export function Groups({ user, onSession }) {
       {groups.loading && <p className="muted">Loading groups…</p>}
       {groups.error && <p className="field-error">{groups.error}</p>}
       {!groups.loading && !groups.data.length && (
-        <p className="empty-state">No study groups match these filters.</p>
+        <p className="empty-state">
+          No study groups match these filters. Enrol in a module from Modules to
+          discover its groups, or create your own.
+        </p>
       )}
       {/* Cards combine membership, focus, languages, updates, and next session. */}
       <div className="group-grid">
@@ -2815,12 +2864,41 @@ export function Groups({ user, onSession }) {
             <p className="recommendation">
               Why recommended: {group.recommendation_reason}
             </p>
+            {user.role === 'student' && group.is_member && (
+              <>
+                <InviteStudent group={group} />
+                <GroupMembers
+                  group={group}
+                  userId={user.userId || user.user_id}
+                  onChanged={() => setRefresh((v) => v + 1)}
+                />
+              </>
+            )}
             <button className="secondary" onClick={() => act(group)}>
-              {group.is_member ? 'Leave' : 'Join'}
+              {group.is_member ? 'Leave group' : 'Join group'}
             </button>
           </article>
         ))}
       </div>
+      {groups.pagination?.pageCount > 1 && (
+        <div className="pagination">
+          <button
+            disabled={groupPage <= 1}
+            onClick={() => setGroupPage((v) => v - 1)}
+          >
+            Previous groups
+          </button>
+          <span>
+            Page {groupPage} of {groups.pagination.pageCount}
+          </span>
+          <button
+            disabled={groupPage >= groups.pagination.pageCount}
+            onClick={() => setGroupPage((v) => v + 1)}
+          >
+            Next groups
+          </button>
+        </div>
+      )}
     </section>
   );
 }
@@ -3766,6 +3844,8 @@ export function QuizEditor({ quizId, onDone }) {
 export function Quizzes({
   user,
   onTake,
+  onCreate,
+  onReview,
   onPlayInfected,
   onPlayIslandEscape,
   onPlayMemoryMatch,
@@ -3774,6 +3854,7 @@ export function Quizzes({
   onPlayTimerTrivia,
 }) {
   const [creating, setCreating] = useState(false);
+  const [reviewQuizId, setReviewQuizId] = useState('');
   const [editingQuizId, setEditingQuizId] = useState('');
   const modules = useData('/modules');
   const [moduleId, setModuleId] = useState('');
@@ -3784,6 +3865,17 @@ export function Quizzes({
       ? `/modules/${moduleId}/quizzes?page=${page}&pageSize=20&search=${encodeURIComponent(search)}`
       : '/modules',
   );
+  if (reviewQuizId && user?.role === 'lecturer')
+    return (
+      <QuizReview
+        quizId={reviewQuizId}
+        onBack={() => setReviewQuizId('')}
+        onEdit={() => {
+          setEditingQuizId(reviewQuizId);
+          setReviewQuizId('');
+        }}
+      />
+    );
   if (editingQuizId && user?.role === 'lecturer')
     return (
       <QuizEditor quizId={editingQuizId} onDone={() => setEditingQuizId('')} />
@@ -3798,11 +3890,14 @@ export function Quizzes({
     <section className="card">
       <h2>Quizzes</h2>
       {user?.role === 'lecturer' && (
-        <button onClick={() => setCreating(true)}>Create quiz</button>
+        <button onClick={() => (onCreate ? onCreate() : setCreating(true))}>
+          Create quiz
+        </button>
       )}
       <p className="muted">
-        Published quizzes are loaded from the API. AI generation progress is
-        reported by the job status endpoint.
+        {user?.role === 'lecturer'
+          ? 'Review questions and answers from your AI-generated and manually created quizzes.'
+          : 'Choose a published quiz to practise or complete your scored attempt.'}
       </p>
       <label htmlFor="quizzes-module">Module</label>
       <select
@@ -3832,7 +3927,14 @@ export function Quizzes({
               setPage(1);
             }}
           />
-          <State state={quizzes} empty="No published quizzes yet." />
+          <State
+            state={quizzes}
+            empty={
+              user?.role === 'lecturer'
+                ? 'No quizzes in this module yet. Create a quiz or generate one from a resource.'
+                : 'No published quizzes in this module yet.'
+            }
+          />
           {quizzes.data.map((quiz) => (
             <div className="quiz-entry" key={quiz.quiz_id}>
               <div className="list-row">
@@ -3842,24 +3944,37 @@ export function Quizzes({
                     {quiz.is_competitive
                       ? 'One scored attempt only.'
                       : 'Practice quiz'}
+                    {user?.role === 'lecturer'
+                      ? ` · ${quiz.status === 'draft' ? 'Draft' : 'Published'} · ${quiz.ai_generated ? 'AI-generated' : 'Manual'}`
+                      : ''}
                   </small>
                 </span>
                 <button
                   className="secondary"
-                  onClick={() => onTake(quiz.quiz_id)}
+                  onClick={() =>
+                    user?.role === 'lecturer'
+                      ? onReview
+                        ? onReview(quiz.quiz_id)
+                        : setReviewQuizId(quiz.quiz_id)
+                      : onTake(quiz.quiz_id)
+                  }
                 >
-                  Open quiz
+                  {user?.role === 'lecturer'
+                    ? 'View questions and answers'
+                    : 'Open quiz'}
                 </button>
               </div>
-              <QuizGames
-                quizId={quiz.quiz_id}
-                onPlayInfected={() => onPlayInfected(quiz.quiz_id)}
-                onPlayIslandEscape={() => onPlayIslandEscape(quiz.quiz_id)}
-                onPlayMemoryMatch={() => onPlayMemoryMatch(quiz.quiz_id)}
-                onPlayBossBattle={() => onPlayBossBattle(quiz.quiz_id)}
-                onPlayPixelRacer={() => onPlayPixelRacer(quiz.quiz_id)}
-                onPlayTimerTrivia={() => onPlayTimerTrivia(quiz.quiz_id)}
-              />
+              {user?.role === 'student' && (
+                <QuizGames
+                  quizId={quiz.quiz_id}
+                  onPlayInfected={() => onPlayInfected(quiz.quiz_id)}
+                  onPlayIslandEscape={() => onPlayIslandEscape(quiz.quiz_id)}
+                  onPlayMemoryMatch={() => onPlayMemoryMatch(quiz.quiz_id)}
+                  onPlayBossBattle={() => onPlayBossBattle(quiz.quiz_id)}
+                  onPlayPixelRacer={() => onPlayPixelRacer(quiz.quiz_id)}
+                  onPlayTimerTrivia={() => onPlayTimerTrivia(quiz.quiz_id)}
+                />
+              )}
             </div>
           ))}
           {quizzes.pagination && quizzes.pagination.pages > 1 ? (
@@ -4048,8 +4163,8 @@ export function GamesPage({ user, onStartGame }) {
                     <h3>{quiz.title}</h3>
                     <p className="muted">
                       {quiz.is_competitive
-                        ? 'Competitive · one scored attempt'
-                        : 'Practice quiz'}
+                        ? 'Competitive quiz questions · games remain practice'
+                        : 'Practice quiz questions'}
                     </p>
                   </div>
                   <div className="quiz-picker-status">
@@ -5606,7 +5721,7 @@ export function IslandEscapeGame({ quizId, onBack }) {
     </section>
   );
 }
-// ── Profile, preferences, password/email changes, and MFA controls ─────────
+// ── Profile, learning preferences and password changes ─────────
 export function ProfilePage({ user, onUserChange }) {
   const [data, setData] = useState(null);
   const [form, setForm] = useState(null);
@@ -5615,14 +5730,8 @@ export function ProfilePage({ user, onUserChange }) {
     newPassword: '',
     confirmPassword: '',
   });
-  const [email, setEmail] = useState({ password: '', email: '' });
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [resending, setResending] = useState(false);
-  const [mfaMessage, setMfaMessage] = useState('');
-  const [mfaFactor, setMfaFactor] = useState({ password: '', code: '' });
-  const [mfaSetup, setMfaSetup] = useState(null);
-  const [setupCode, setSetupCode] = useState('');
   const dirty =
     form &&
     JSON.stringify(form) !==
@@ -5706,98 +5815,6 @@ export function ProfilePage({ user, onUserChange }) {
       setError(reason.message);
     }
   };
-  const submitEmail = async (event) => {
-    event.preventDefault();
-    setError('');
-    setMessage('');
-    try {
-      const body = await api('/me/email', {
-        method: 'POST',
-        body: JSON.stringify(email),
-      });
-      const pendingEmail = email.email.trim().toLowerCase();
-      setData((previous) => ({
-        ...previous,
-        profile: { ...previous.profile, pending_email: pendingEmail },
-      }));
-      setForm((previous) => ({ ...previous, pending_email: pendingEmail }));
-      setMessage(body.message);
-      setEmail({ password: '', email: '' });
-    } catch (reason) {
-      setError(reason.message);
-    }
-  };
-  const resendVerification = async () => {
-    if (resending) return;
-    setResending(true);
-    setError('');
-    setMessage('');
-    try {
-      await api('/auth/resend-verification', { method: 'POST', body: '{}' });
-      setMessage('Check your email for a new verification code.');
-    } catch (reason) {
-      setError(reason.message);
-    } finally {
-      setResending(false);
-    }
-  };
-  const enrolMfa = async () => {
-    try {
-      const body = await api('/mfa/enrol', { method: 'POST', body: '{}' });
-      setError('');
-      setMfaSetup(body);
-    } catch (reason) {
-      setError(reason.message);
-    }
-  };
-  const mfaAction = async (path) => {
-    try {
-      const body = await api(path, {
-        method: 'POST',
-        body: JSON.stringify({
-          password: mfaFactor.password,
-          ...(/^\d{6}$/.test(mfaFactor.code.trim())
-            ? { code: mfaFactor.code.trim() }
-            : { recoveryCode: mfaFactor.code.trim() }),
-        }),
-      });
-      setMfaMessage(
-        body.recoveryCodes
-          ? `Recovery codes: ${body.recoveryCodes.join(', ')}`
-          : body.message || 'MFA updated.',
-      );
-      if (path === '/mfa/disable') {
-        setData((current) => ({
-          ...current,
-          profile: { ...current.profile, mfa_enabled: false },
-        }));
-        setForm((current) => ({ ...current, mfa_enabled: false }));
-      }
-      setMfaFactor({ password: '', code: '' });
-    } catch (reason) {
-      setError(reason.message);
-    }
-  };
-  const confirmMfa = async (event) => {
-    event.preventDefault();
-    setError('');
-    try {
-      const body = await api('/mfa/confirm', {
-        method: 'POST',
-        body: JSON.stringify({ code: setupCode }),
-      });
-      setMfaMessage(`Recovery codes: ${body.recoveryCodes.join(', ')}`);
-      setMfaSetup(null);
-      setSetupCode('');
-      setData((current) => ({
-        ...current,
-        profile: { ...current.profile, mfa_enabled: true },
-      }));
-      setForm((current) => ({ ...current, mfa_enabled: true }));
-    } catch (reason) {
-      setError(reason.message);
-    }
-  };
   return (
     <section className="profile-grid">
       {/* Identity and preferences reuse the registration validation rules. */}
@@ -5875,50 +5892,6 @@ export function ProfilePage({ user, onUserChange }) {
       </form>
       {/* Email and password changes are isolated security-sensitive forms. */}
       <div className="profile-stack">
-        <form className="card" onSubmit={submitEmail}>
-          <h2>Change email</h2>
-          {(!data.profile.email_verified_at || data.profile.pending_email) && (
-            <div>
-              <p className="muted">
-                {data.profile.pending_email
-                  ? `Verification is pending for ${data.profile.pending_email}.`
-                  : 'Your email address still needs verification.'}
-              </p>
-              <button
-                type="button"
-                className="secondary"
-                disabled={resending}
-                onClick={resendVerification}
-              >
-                {resending ? 'Sending…' : 'Resend verification email'}
-              </button>
-            </div>
-          )}
-          <p className="muted">
-            Your current email stays active until the new address is verified.
-          </p>
-          <label>
-            New email
-            <input
-              type="email"
-              value={email.email}
-              onChange={(e) => setEmail({ ...email, email: e.target.value })}
-              required
-            />
-          </label>
-          <label>
-            Current password
-            <input
-              type="password"
-              value={email.password}
-              onChange={(e) => setEmail({ ...email, password: e.target.value })}
-              required
-            />
-          </label>
-          <button className="secondary" type="submit">
-            Send verification
-          </button>
-        </form>
         <form className="card" onSubmit={submitPassword}>
           <h2>Change password</h2>
           <label>
@@ -5962,89 +5935,6 @@ export function ProfilePage({ user, onUserChange }) {
             Change password
           </button>
         </form>
-        <section className="card">
-          <h2>Multi-factor authentication</h2>
-          <p>
-            {data.profile.mfa_enabled
-              ? 'MFA is enabled.'
-              : 'MFA is not enabled.'}
-          </p>
-          {mfaMessage && <p className="success">{mfaMessage}</p>}
-          {!data.profile.mfa_enabled && !mfaSetup && (
-            <button className="secondary" onClick={enrolMfa}>
-              Enrol MFA
-            </button>
-          )}
-          {mfaSetup && (
-            <form onSubmit={confirmMfa}>
-              <p>
-                Add EduQuest to your authenticator, then enter its six-digit
-                code.
-              </p>
-              <img
-                src={mfaSetup.qrCode}
-                alt="Scan to set up EduQuest in your authenticator"
-                width="180"
-                height="180"
-              />
-              <p>
-                Setup key: <code>{mfaSetup.setupKey}</code>
-              </p>
-              <label>
-                Setup authenticator code
-                <input
-                  value={setupCode}
-                  onChange={(event) => setSetupCode(event.target.value)}
-                  autoComplete="one-time-code"
-                  inputMode="numeric"
-                  pattern="[0-9]{6}"
-                  required
-                />
-              </label>
-              <button className="secondary" type="submit">
-                Confirm MFA
-              </button>
-            </form>
-          )}
-          {data.profile.mfa_enabled && (
-            <>
-              <label>
-                MFA password
-                <input
-                  type="password"
-                  value={mfaFactor.password}
-                  onChange={(e) =>
-                    setMfaFactor({ ...mfaFactor, password: e.target.value })
-                  }
-                />
-              </label>
-              <label>
-                Authenticator or recovery code
-                <input
-                  value={mfaFactor.code}
-                  onChange={(e) =>
-                    setMfaFactor({ ...mfaFactor, code: e.target.value })
-                  }
-                />
-              </label>
-              <div className="button-row">
-                <button
-                  className="secondary"
-                  onClick={() => mfaAction('/mfa/disable')}
-                >
-                  Disable MFA
-                </button>
-                <button
-                  className="secondary"
-                  onClick={() => mfaAction('/mfa/recovery-codes/regenerate')}
-                >
-                  Regenerate recovery codes
-                </button>
-              </div>
-            </>
-          )}
-          <p className="muted">Never share your setup key or recovery codes.</p>
-        </section>
       </div>
     </section>
   );
@@ -6217,4 +6107,9 @@ export function QuizTaking({ quizId }) {
 }
 
 if (document.getElementById('root'))
-  createRoot(document.getElementById('root')).render(<App />);
+  createRoot(document.getElementById('root')).render(
+    <>
+      <PwaStatus />
+      <App />
+    </>,
+  );

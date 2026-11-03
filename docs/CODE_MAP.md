@@ -113,3 +113,12 @@ Shared game access and availability live in `backend/src/games/access.js` and
   `AI_SERVICE_TOKEN`.
 - SQL values are parameterised, and multi-row scoring/game writes use database
   transactions and row locks.
+
+## Student collaboration, user removal and mobile installation
+
+- `backend/src/groups/student-network.js` implements the student directory, two-person conversations, invitation responses, group member rosters and primary leadership handover. `backend/tests/student-network-api.test.js` checks access boundaries and persistence; `helpers/network-cases.js` covers every route in the authorization matrix.
+- `backend/src/admin/accounts.js` implements administrator-created users and audited removal/anonymisation. `account-management-api.test.js` covers all three roles, session revocation, lecturer reassignment, leadership succession and competing administrator actions.
+- `frontend/src/student-network.jsx` contains Messages, invitations, the invite picker and group members. `admin-users.jsx` contains user creation, search, account actions and deletion confirmation. `quiz-review.jsx` displays the lecturer's questions and correct answers.
+- `frontend/src/navigation.js` owns role navigation and hash-route parsing/history. `http.js` provides readable network failure messages.
+- `frontend/src/pwa.jsx`, `frontend/public/manifest.webmanifest` and `frontend/pwa/sw.template.js` implement install/update/offline behavior. `scripts/build-pwa.mjs` versions the public asset cache after Vite builds. Private API traffic is excluded.
+- `frontend/e2e/collaboration.spec.js` checks real two-student interaction, admin CRUD, lecturer review and PWA behavior; `collaboration.test.jsx`, `navigation.test.js` and `pwa.test.jsx` cover component and routing behavior.
