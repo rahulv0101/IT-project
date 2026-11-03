@@ -6018,7 +6018,9 @@ export function ProfilePage({ user, onUserChange }) {
                 studentYear: form.student_year,
               }
             : {}),
-          preferredLanguages: form.preferredLanguages,
+          ...(user.role !== 'lecturer'
+            ? { preferredLanguages: form.preferredLanguages }
+            : {}),
         }),
       });
       setData({ ...data, profile: body.profile });
@@ -6106,30 +6108,32 @@ export function ProfilePage({ user, onUserChange }) {
             </select>
           </label>
         )}
-        <fieldset>
-          <legend>Preferred languages</legend>
-          <div className="language-grid">
-            {data.languages.map((language) => (
-              <label key={language}>
-                <input
-                  type="checkbox"
-                  checked={form.preferredLanguages.includes(language)}
-                  onChange={(e) =>
-                    update(
-                      'preferredLanguages',
-                      e.target.checked
-                        ? [...form.preferredLanguages, language]
-                        : form.preferredLanguages.filter(
-                            (item) => item !== language,
-                          ),
-                    )
-                  }
-                />
-                {language}
-              </label>
-            ))}
-          </div>
-        </fieldset>
+        {user.role !== 'lecturer' && (
+          <fieldset>
+            <legend>Preferred languages</legend>
+            <div className="language-grid">
+              {data.languages.map((language) => (
+                <label key={language}>
+                  <input
+                    type="checkbox"
+                    checked={form.preferredLanguages.includes(language)}
+                    onChange={(e) =>
+                      update(
+                        'preferredLanguages',
+                        e.target.checked
+                          ? [...form.preferredLanguages, language]
+                          : form.preferredLanguages.filter(
+                              (item) => item !== language,
+                            ),
+                      )
+                    }
+                  />
+                  {language}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        )}
         <button className="primary" type="submit">
           Save profile
         </button>

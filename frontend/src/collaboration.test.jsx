@@ -258,12 +258,13 @@ it.each(['student', 'lecturer', 'admin'])(
       preferred_languages: [],
       mfa_enabled: true,
     };
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => response({ profile, languages: [] })),
-    );
+    const fetchMock = vi.fn(async () => response({ profile, languages: [] }));
+    vi.stubGlobal('fetch', fetchMock);
     render(<ProfilePage user={profile} onUserChange={vi.fn()} />);
     await screen.findByText('Edit profile');
+    expect(
+      screen.queryByRole('group', { name: 'Preferred languages' }) !== null,
+    ).toBe(role !== 'lecturer');
     expect(
       screen.getByRole('heading', { name: 'Change password' }),
     ).toBeTruthy();
@@ -272,6 +273,12 @@ it.each(['student', 'lecturer', 'admin'])(
         /Change email|Multi.factor authentication|MFA is|Enrol MFA/,
       ),
     ).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const saved = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(Object.hasOwn(saved, 'preferredLanguages')).toBe(
+      role !== 'lecturer',
+    );
   },
 );
 
