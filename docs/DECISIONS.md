@@ -382,3 +382,7 @@ claiming this requirement done. No paid API was used for these attempts.
 - Study-session starts must be strictly in the future. The server already checked this in the write route and the database protected inserts; the shared request schema now supplies the same explicit validation message for create/edit/duplicate. The form adds native minimum dates, end-after-start/eight-hour limits and pre-submit checks before ISO conversion. Invalid or elapsed dates cannot silently throw a conversion error or reach submission from the form.
 - Remove the meeting-link input and Open HTTPS meeting action. In-person sessions retain a required Room field; online sessions need no location/link. Migration 036 permits an empty location only for online sessions while preserving room validation and all existing session records. Legacy supplied URLs still receive HTTPS validation. Saving an online session through the updated form stores an empty location; no bulk historic-link deletion occurs.
 - Existing historical sessions remain readable and cancellable. Tests use isolated database/browser fixtures; live checks must not deactivate actual users or edit their study sessions for validation.
+
+### 2026-11-03 — Show year only on module cards
+
+- Remove the offering/semester suffix from module cards at the owner's request. Cards retain the module's year, lecturer, availability counts and join code. Stored offering data and other module controls are unchanged; no database migration is required.

@@ -446,3 +446,9 @@ Regressions cover past create/edit/duplicate with unchanged saved dates, online 
 Validation: all 702 automated tests (302 unit/component, 400 API) and all six Chromium mobile/desktop and Firefox mobile browser scenarios passed with no skips. A private 48-table backup precedes migration 036. Details: `docs/SESSION_DATES_ADMIN_2026-11-03.md`.
 
 Live release: `fe56421` is deployed. Migration 036 preserved the existing session row. A real mobile student session verified native past-date rejection and no online meeting control, and the live API rejected a past-dated request with 422 and the future-start message. Production users and saved sessions were not modified for validation. Full release evidence is recorded in `docs/SESSION_DATES_ADMIN_2026-11-03.md`.
+
+### Module card semester label — 2026-11-03
+
+`Modules` in `frontend/src/main.jsx` renders the year alone instead of appending the stored offering (such as Semester 1). This is a display-only change; module records, year audiences and join codes remain unchanged.
+
+Validation: all 74 existing application/profile/module component tests passed; lint, type checking, formatting and production build passed. No database change is needed.

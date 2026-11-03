@@ -1951,9 +1951,7 @@ export function Modules({ user }) {
               <p className="muted">
                 Lecturer: {module.lecturer_name || 'Your teaching team'}
               </p>
-              <p>
-                {module.year ? `Year ${module.year} · ${module.offering}` : ''}
-              </p>
+              {module.year && <p>Year {module.year}</p>}
               <div className="module-card-stats">
                 <span>{module.quizzes_available || 0} quizzes available</span>
                 <span>{module.new_resources_count || 0} new resources</span>
