@@ -7,6 +7,11 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import nodemailer from 'nodemailer';
 import { hashEmailCode } from '../src/email-codes.js';
 
+import { emailDns } from '../src/validation/email-domain.js';
+vi.spyOn(emailDns, 'resolveMx').mockResolvedValue([
+  { exchange: 'mx.example.com', priority: 0 },
+]);
+
 process.env.NODE_ENV = 'development';
 process.env.COOKIE_SECURE = 'false';
 process.env.AUTH_RATE_LIMIT = '1000';
@@ -22,6 +27,34 @@ describe('identity registration and verification', () => {
     await pool.query('DELETE FROM users WHERE email LIKE $1', [
       'identity-%@example.com',
     ]);
+  });
+
+  it('rejects unroutable domains before creating an account and allows retry after DNS failures', async () => {
+    for (const code of ['ENOTFOUND', 'ETIMEOUT']) {
+      emailDns.resolveMx.mockRejectedValueOnce(
+        Object.assign(new Error(code), { code }),
+      );
+      const address = `identity-domain-${crypto.randomUUID()}@typo.invalid`;
+      const result = await request(app).post('/api/v1/auth/register').send({
+        email: address,
+        password: strong,
+        confirmPassword: strong,
+        firstName: 'Learner',
+        lastName: 'Test',
+        studentType: 'it',
+      });
+      expect(result.status).toBe(code === 'ENOTFOUND' ? 422 : 503);
+      expect(result.body.error.fields.email).toBeTruthy();
+      expect(result.body.error.code).toBe(
+        code === 'ENOTFOUND'
+          ? 'INVALID_EMAIL_DOMAIN'
+          : 'EMAIL_DOMAIN_UNAVAILABLE',
+      );
+      expect(
+        (await pool.query('SELECT 1 FROM users WHERE email=$1', [address]))
+          .rowCount,
+      ).toBe(0);
+    }
   });
 
   it('registers a student with split names and student type', async () => {

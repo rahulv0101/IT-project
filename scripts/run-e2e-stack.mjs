@@ -140,7 +140,7 @@ try {
 
   const commands = [
     [process.execPath, ['backend/scripts/session-reminders.js']],
-    [process.execPath, ['backend/src/index.js']],
+    [process.execPath, ['backend/tests/helpers/e2e-server.js']],
     [resolvePython(), ['ai-service/run.py']],
     [process.execPath, ['backend/scripts/ai-worker.js']],
     [

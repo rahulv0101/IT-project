@@ -9,13 +9,18 @@ import { hashEmailCode } from '../src/email-codes.js';
 import path from 'node:path';
 import bcrypt from 'bcryptjs';
 import request from 'supertest';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   messagingRouteSpecs,
   assertMessagingRoute,
   sessionRouteSpecs,
   assertSessionRoute,
 } from './helpers/session-cases.js';
+
+import { emailDns } from '../src/validation/email-domain.js';
+vi.spyOn(emailDns, 'resolveMx').mockResolvedValue([
+  { exchange: 'mx.example.com', priority: 0 },
+]);
 
 process.env.NODE_ENV = 'development';
 process.env.COOKIE_SECURE = 'false';

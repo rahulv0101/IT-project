@@ -19,6 +19,7 @@ import rateLimit from 'express-rate-limit';
 import multer from 'multer';
 import { z } from 'zod';
 import { registerStudentNetworkRoutes } from './groups/student-network.js';
+import { emailDomainStatus } from './validation/email-domain.js';
 import { sendVerificationEmail } from './email.js';
 import {
   issueEmailCode,
@@ -136,8 +137,10 @@ if (process.env.E2E_TEST_MODE === '1')
 
 const sessionHash = (token) =>
   crypto.createHash('sha256').update(token).digest('hex');
-const error = (res, status, code, message, requestId) =>
-  res.status(status).json({ error: { code, message, requestId } });
+const error = (res, status, code, message, requestId, fields) =>
+  res.status(status).json({
+    error: { code, message, requestId, ...(fields ? { fields } : {}) },
+  });
 const requestId = (req) => req.id || crypto.randomUUID();
 const visibleText = (field, req, res, value) => {
   if (!containsProfanity(value)) return true;
@@ -595,6 +598,23 @@ app.post('/api/v1/auth/register', async (req, res, next) => {
         'Choose a less common password that does not contain your email or first name.',
         requestId(req),
       );
+    const domainStatus = await emailDomainStatus(data.email);
+    if (domainStatus !== 'valid') {
+      const message =
+        domainStatus === 'invalid'
+          ? 'This email domain cannot receive mail. Check the spelling of your email address.'
+          : 'We could not verify this email domain right now. Please try again.';
+      return error(
+        res,
+        domainStatus === 'invalid' ? 422 : 503,
+        domainStatus === 'invalid'
+          ? 'INVALID_EMAIL_DOMAIN'
+          : 'EMAIL_DOMAIN_UNAVAILABLE',
+        message,
+        requestId(req),
+        { email: message },
+      );
+    }
     const hash = await bcrypt.hash(data.password, 12);
     const fullName = [identity.firstName, identity.lastName]
       .filter(Boolean)
@@ -1534,52 +1554,66 @@ app.post('/api/v1/me/password', requireAuth, async (req, res, next) => {
         'VALIDATION_ERROR',
         'Passwords do not match.',
         requestId(req),
+        { confirmPassword: 'Passwords do not match.' },
       );
-    const current = await pool.query(
-      'SELECT password_hash,first_name,email FROM users WHERE user_id=$1',
-      [req.user.userId],
-    );
-    if (
-      !current.rowCount ||
-      !(await bcrypt.compare(data.password, current.rows[0].password_hash))
-    )
-      return error(
-        res,
-        401,
-        'INVALID_PASSWORD',
-        'The current password is incorrect.',
-        requestId(req),
-      );
-    if (
-      !passwordIsAllowed(
-        data.newPassword,
-        current.rows[0].email,
-        current.rows[0].first_name,
-      )
-    )
-      return error(
-        res,
-        422,
-        'VALIDATION_ERROR',
-        'Choose a less common password that does not contain your email or first name.',
-        requestId(req),
-      );
-    await pool.query('BEGIN');
+    const client = await pool.connect();
+    let committed = false;
     try {
-      await pool.query('UPDATE users SET password_hash=$1 WHERE user_id=$2', [
-        await bcrypt.hash(data.newPassword, 12),
-        req.user.userId,
-      ]);
-      await pool.query(
+      await client.query('BEGIN');
+      const current = await client.query(
+        'SELECT password_hash,first_name,email FROM users WHERE user_id=$1 FOR UPDATE',
+        [req.user.userId],
+      );
+      if (
+        !current.rowCount ||
+        !(await bcrypt.compare(data.password, current.rows[0].password_hash))
+      )
+        return error(
+          res,
+          401,
+          'INVALID_PASSWORD',
+          'The current password is incorrect.',
+          requestId(req),
+          { password: 'The current password is incorrect.' },
+        );
+      if (
+        !passwordIsAllowed(
+          data.newPassword,
+          current.rows[0].email,
+          current.rows[0].first_name,
+        )
+      )
+        return error(
+          res,
+          422,
+          'VALIDATION_ERROR',
+          'Choose a less common password that does not contain your email or first name.',
+          requestId(req),
+          {
+            newPassword:
+              'Choose a less common password that does not contain your email or first name.',
+          },
+        );
+      await client.query(
+        'UPDATE users SET password_hash=$1,requires_password_reset=false WHERE user_id=$2',
+        [await bcrypt.hash(data.newPassword, 12), req.user.userId],
+      );
+      await client.query(
         'UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND token_hash<>$2 AND revoked_at IS NULL',
         [req.user.userId, sessionHash(req.cookies.eduquest_session)],
       );
-      await pool.query('COMMIT');
-    } catch (e) {
-      await pool.query('ROLLBACK');
-      throw e;
+      await client.query('COMMIT');
+      committed = true;
+      res.json({
+        message: 'Password changed. Other sessions were signed out.',
+      });
+    } finally {
+      try {
+        if (!committed) await client.query('ROLLBACK');
+      } finally {
+        client.release();
+      }
     }
-    res.json({ message: 'Password changed. Other sessions were signed out.' });
   } catch (e) {
     next(e);
   }

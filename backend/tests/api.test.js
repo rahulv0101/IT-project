@@ -2,7 +2,12 @@
 import 'dotenv/config';
 import bcrypt from 'bcryptjs';
 import request from 'supertest';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
+
+import { emailDns } from '../src/validation/email-domain.js';
+vi.spyOn(emailDns, 'resolveMx').mockResolvedValue([
+  { exchange: 'mx.example.com', priority: 0 },
+]);
 
 process.env.NODE_ENV = 'development';
 process.env.COOKIE_SECURE = 'false';

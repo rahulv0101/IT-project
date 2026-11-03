@@ -152,9 +152,58 @@ describe('profile management API', () => {
     }
   });
 
+  it('rolls back the password hash when revoking other sessions fails', async () => {
+    const current = await login();
+    const other = await login();
+    const before = (
+      await pool.query('SELECT password_hash FROM users WHERE user_id=$1', [
+        userId,
+      ])
+    ).rows[0].password_hash;
+    await pool.query(`CREATE FUNCTION test_password_revoke_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.revoked_at IS NOT NULL THEN
+          RAISE EXCEPTION 'simulated session revocation failure';
+        END IF;
+        RETURN NEW;
+      END $$`);
+    await pool.query(
+      'CREATE TRIGGER test_password_revoke_failure BEFORE UPDATE ON sessions FOR EACH ROW EXECUTE FUNCTION test_password_revoke_failure()',
+    );
+    try {
+      const result = await request(app)
+        .post('/api/v1/me/password')
+        .set('Cookie', current)
+        .send({
+          password,
+          newPassword: 'RollbackSecret9!',
+          confirmPassword: 'RollbackSecret9!',
+        });
+      expect(result.status).toBe(500);
+      expect(
+        (
+          await pool.query('SELECT password_hash FROM users WHERE user_id=$1', [
+            userId,
+          ])
+        ).rows[0].password_hash,
+      ).toBe(before);
+      expect(
+        (await request(app).get('/api/v1/me/profile').set('Cookie', other))
+          .status,
+      ).toBe(200);
+    } finally {
+      await pool.query('DROP TRIGGER test_password_revoke_failure ON sessions');
+      await pool.query('DROP FUNCTION test_password_revoke_failure()');
+    }
+  });
+
   it('changes password under the shared policy and revokes every other session only', async () => {
     const current = await login();
     const other = await login();
+    await pool.query(
+      'UPDATE users SET requires_password_reset=true WHERE user_id=$1',
+      [userId],
+    );
     const changed = await request(app)
       .post('/api/v1/me/password')
       .set('Cookie', current)
@@ -164,6 +213,19 @@ describe('profile management API', () => {
         confirmPassword: 'ProfileNew9@',
       });
     expect(changed.status).toBe(200);
+    expect(
+      (
+        await pool.query(
+          'SELECT requires_password_reset FROM users WHERE user_id=$1',
+          [userId],
+        )
+      ).rows[0].requires_password_reset,
+    ).toBe(false);
+    expect(
+      (await request(app).post('/api/v1/auth/login').send({ email, password }))
+        .status,
+    ).toBe(401);
+
     expect(
       (await request(app).get('/api/v1/me/profile').set('Cookie', current))
         .status,
@@ -181,32 +243,81 @@ describe('profile management API', () => {
     ).toBe(200);
   });
 
-  it('requires the current password and confirmation for password changes', async () => {
+  it('attaches password failures to the correct fields without changing credentials or sessions', async () => {
     const cookie = await login(email, 'ProfileNew9@');
+    const other = await login(email, 'ProfileNew9@');
+    const before = (
+      await pool.query('SELECT password_hash FROM users WHERE user_id=$1', [
+        userId,
+      ])
+    ).rows[0].password_hash;
+    const cases = [
+      [
+        {
+          password: 'wrong',
+          newPassword: 'AnotherNew9@',
+          confirmPassword: 'AnotherNew9@',
+        },
+        401,
+        'password',
+      ],
+      [
+        {
+          password: 'ProfileNew9@',
+          newPassword: 'AnotherNew9@',
+          confirmPassword: 'Mismatch9@',
+        },
+        422,
+        'confirmPassword',
+      ],
+      [
+        {
+          password: 'ProfileNew9@',
+          newPassword: 'short',
+          confirmPassword: 'short',
+        },
+        422,
+        'newPassword',
+      ],
+      [
+        {
+          password: 'ProfileNew9@',
+          newPassword: 'UpdatedSecure9@',
+          confirmPassword: 'UpdatedSecure9@',
+        },
+        422,
+        'newPassword',
+      ],
+      [
+        {
+          password: 'ProfileNew9@',
+          newPassword: 'AnotherNew9@',
+          confirmPassword: 'AnotherNew9@',
+          role: 'admin',
+        },
+        422,
+        null,
+      ],
+    ];
+    for (const [body, status, field] of cases) {
+      const result = await request(app)
+        .post('/api/v1/me/password')
+        .set('Cookie', cookie)
+        .send(body);
+      expect(result.status).toBe(status);
+      if (field) expect(result.body.error.fields[field]).toBeTruthy();
+    }
     expect(
       (
-        await request(app)
-          .post('/api/v1/me/password')
-          .set('Cookie', cookie)
-          .send({
-            password: 'wrong',
-            newPassword: 'AnotherNew9@',
-            confirmPassword: 'AnotherNew9@',
-          })
-      ).status,
-    ).toBe(401);
+        await pool.query('SELECT password_hash FROM users WHERE user_id=$1', [
+          userId,
+        ])
+      ).rows[0].password_hash,
+    ).toBe(before);
     expect(
-      (
-        await request(app)
-          .post('/api/v1/me/password')
-          .set('Cookie', cookie)
-          .send({
-            password: 'ProfileNew9@',
-            newPassword: 'AnotherNew9@',
-            confirmPassword: 'Mismatch9@',
-          })
-      ).status,
-    ).toBe(422);
+      (await request(app).get('/api/v1/me/profile').set('Cookie', other))
+        .status,
+    ).toBe(200);
   });
 
   it('keeps the old email active until the new email is verified', async () => {

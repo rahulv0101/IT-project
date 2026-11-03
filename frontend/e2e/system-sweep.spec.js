@@ -65,6 +65,19 @@ test('registration matches the branch and verifies a six-digit email code', asyn
     fullPage: true,
   });
   await page.getByLabel('Confirm password').fill('CorrectHorse9!');
+  await page.getByLabel('Email', { exact: true }).fill('learner@gmail.con');
+  await page.getByRole('button', { name: 'Register', exact: true }).click();
+  await expect(
+    page.getByText(
+      'This email domain cannot receive mail. Check the spelling of your email address.',
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(page.getByLabel('Email', { exact: true })).toHaveAttribute(
+    'aria-invalid',
+    'true',
+  );
+  await page.getByLabel('Email', { exact: true }).fill(email);
   const registered = page.waitForResponse((response) =>
     response.url().endsWith('/auth/register'),
   );
@@ -100,6 +113,54 @@ test('registration matches the branch and verifies a six-digit email code', asyn
     page.getByRole('heading', { name: 'Dashboard', exact: true }),
   ).toBeVisible();
   await page.reload();
+  await expect(
+    page.getByRole('heading', { name: 'Dashboard', exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Profile', exact: true }).click();
+  await page
+    .getByLabel('Current password', { exact: true })
+    .fill('WrongPassword9!');
+  await page.getByLabel('New password', { exact: true }).fill('VioletRiver9!');
+  await page
+    .getByLabel('Confirm new password', { exact: true })
+    .fill('VioletRiver9!');
+  await page
+    .getByRole('button', { name: 'Show new password', exact: true })
+    .click();
+  await expect(
+    page.getByLabel('New password', { exact: true }),
+  ).toHaveAttribute('type', 'text');
+  await page
+    .getByRole('button', { name: 'Hide new password', exact: true })
+    .click();
+  await page
+    .getByRole('button', { name: 'Change password', exact: true })
+    .click();
+  await expect(
+    page.getByText('The current password is incorrect.', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByLabel('Current password', { exact: true }),
+  ).toHaveAttribute('aria-invalid', 'true');
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page
+    .getByLabel('Current password', { exact: true })
+    .fill('CorrectHorse9!');
+  await page
+    .getByRole('button', { name: 'Change password', exact: true })
+    .click();
+  await expect(
+    page.getByText('Password changed. Other sessions were signed out.', {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(page.getByLabel('New password', { exact: true })).toHaveValue(
+    '',
+  );
+  await page.getByRole('button', { name: 'Log out', exact: true }).click();
+  await page.getByLabel('Email', { exact: true }).fill(email);
+  await page.getByLabel('Password', { exact: true }).fill('VioletRiver9!');
+  await page.getByRole('button', { name: 'Log in', exact: true }).click();
   await expect(
     page.getByRole('heading', { name: 'Dashboard', exact: true }),
   ).toBeVisible();

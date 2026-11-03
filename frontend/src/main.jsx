@@ -287,7 +287,11 @@ function Auth({ onLogin }) {
         setError('Sign-in could not be completed. Please try again.');
       }
     } catch (reason) {
-      setError(reason.message);
+      setError(
+        Object.keys(reason.fields || {}).length
+          ? 'Please correct the highlighted fields.'
+          : reason.message,
+      );
       setFields(reason.fields || {});
     } finally {
       setBusy(false);
@@ -369,9 +373,10 @@ function Auth({ onLogin }) {
               {fieldError('lastName')}
             </label>
           )}
-          <label>
-            Email
+          <div className="field-group">
+            <label htmlFor="auth-email">Email</label>
             <input
+              id="auth-email"
               type="email"
               autoComplete="email"
               maxLength={254}
@@ -381,7 +386,7 @@ function Auth({ onLogin }) {
               required
             />
             {fieldError('email')}
-          </label>
+          </div>
           <div className="field-group">
             <label htmlFor="auth-password">Password</label>
             <PasswordInput
@@ -5822,6 +5827,11 @@ export function ProfilePage({ user, onUserChange }) {
     newPassword: '',
     confirmPassword: '',
   });
+  const [passwordFields, setPasswordFields] = useState({});
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordMessage, setPasswordMessage] = useState('');
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [visiblePasswords, setVisiblePasswords] = useState({});
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const dirty =
@@ -5894,17 +5904,29 @@ export function ProfilePage({ user, onUserChange }) {
   };
   const submitPassword = async (event) => {
     event.preventDefault();
-    setError('');
-    setMessage('');
+    if (passwordBusy) return;
+    setPasswordError('');
+    setPasswordMessage('');
+    setPasswordFields({});
+    if (passwords.newPassword !== passwords.confirmPassword) {
+      setPasswordFields({ confirmPassword: 'Passwords do not match.' });
+      return;
+    }
+    setPasswordBusy(true);
     try {
       const body = await api('/me/password', {
         method: 'POST',
         body: JSON.stringify(passwords),
       });
-      setMessage(body.message);
+      setPasswordMessage(body.message);
       setPasswords({ password: '', newPassword: '', confirmPassword: '' });
+      setVisiblePasswords({});
     } catch (reason) {
-      setError(reason.message);
+      setPasswordFields(reason.fields || {});
+      if (!Object.keys(reason.fields || {}).length)
+        setPasswordError(reason.message);
+    } finally {
+      setPasswordBusy(false);
     }
   };
   return (
@@ -5982,49 +6004,76 @@ export function ProfilePage({ user, onUserChange }) {
           Save profile
         </button>
       </form>
-      {/* Email and password changes are isolated security-sensitive forms. */}
+      {/* Password feedback stays with the security form that submitted it. */}
       <div className="profile-stack">
         <form className="card" onSubmit={submitPassword}>
           <h2>Change password</h2>
-          <label>
-            Current password
-            <input
-              type="password"
-              value={passwords.password}
-              onChange={(e) =>
-                setPasswords({ ...passwords, password: e.target.value })
-              }
-              required
-            />
-          </label>
-          <label>
-            New password
-            <input
-              type="password"
-              value={passwords.newPassword}
-              onChange={(e) =>
-                setPasswords({ ...passwords, newPassword: e.target.value })
-              }
-              required
-            />
-          </label>
-          <label>
-            Confirm new password
-            <input
-              type="password"
-              value={passwords.confirmPassword}
-              onChange={(e) =>
-                setPasswords({ ...passwords, confirmPassword: e.target.value })
-              }
-              required
-            />
-          </label>
+          {passwordError && (
+            <p className="field-error" role="alert">
+              {passwordError}
+            </p>
+          )}
+          {passwordMessage && (
+            <p className="success" role="status">
+              {passwordMessage}
+            </p>
+          )}
+          {[
+            ['password', 'Current password'],
+            ['newPassword', 'New password'],
+            ['confirmPassword', 'Confirm new password'],
+          ].map(([key, label]) => (
+            <div className="field-group" key={key}>
+              <label htmlFor={`profile-${key}`}>{label}</label>
+              <PasswordInput
+                id={`profile-${key}`}
+                label={label.toLowerCase()}
+                show={Boolean(visiblePasswords[key])}
+                onToggle={() =>
+                  setVisiblePasswords((current) => ({
+                    ...current,
+                    [key]: !current[key],
+                  }))
+                }
+                value={passwords[key]}
+                autoComplete={
+                  key === 'password' ? 'current-password' : 'new-password'
+                }
+                aria-invalid={Boolean(passwordFields[key])}
+                aria-describedby={
+                  passwordFields[key] ? `profile-${key}-error` : undefined
+                }
+                onChange={(e) => {
+                  setPasswords({ ...passwords, [key]: e.target.value });
+                  setPasswordFields((current) => ({
+                    ...current,
+                    [key]: '',
+                    ...(key === 'newPassword' ? { confirmPassword: '' } : {}),
+                  }));
+                  setPasswordError('');
+                  setPasswordMessage('');
+                }}
+                required
+                maxLength={key === 'password' ? undefined : 200}
+              />
+              {passwordFields[key] && (
+                <small
+                  className="field-error"
+                  role="alert"
+                  id={`profile-${key}-error`}
+                >
+                  {passwordFields[key]}
+                </small>
+              )}
+            </div>
+          ))}
           <p className="muted">
             Use 10+ characters with uppercase, lowercase, number and special
-            character.
+            character. Avoid common passwords and passwords containing your
+            first name or email address.
           </p>
-          <button className="secondary" type="submit">
-            Change password
+          <button className="secondary" type="submit" disabled={passwordBusy}>
+            {passwordBusy ? 'Changing password…' : 'Change password'}
           </button>
         </form>
       </div>

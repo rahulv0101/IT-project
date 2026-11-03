@@ -2726,3 +2726,107 @@ describe('email-code verification screen', () => {
     );
   });
 });
+
+it('profile password controls reveal each password and keep validation beside its field', async () => {
+  cleanup();
+  const profile = {
+    role: 'student',
+    first_name: 'Grace',
+    email: 'grace@example.com',
+    preferred_languages: [],
+  };
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ profile, languages: [] }),
+    })
+    .mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      json: async () => ({
+        error: {
+          message: 'The current password is incorrect.',
+          fields: { password: 'The current password is incorrect.' },
+        },
+      }),
+    })
+    .mockResolvedValueOnce({
+      ok: false,
+      status: 422,
+      json: async () => ({
+        error: {
+          message: 'Please check the submitted fields.',
+          fields: { newPassword: 'Password needs a number.' },
+        },
+      }),
+    })
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        message: 'Password changed. Other sessions were signed out.',
+      }),
+    });
+  vi.stubGlobal('fetch', fetchMock);
+  render(<ProfilePage user={profile} onUserChange={vi.fn()} />);
+  await screen.findByText('Edit profile');
+  const current = screen.getByLabelText('Current password');
+  const next = screen.getByLabelText('New password', { exact: true });
+  const confirm = screen.getByLabelText('Confirm new password');
+  for (const [input, label] of [
+    [current, 'current password'],
+    [next, 'new password'],
+    [confirm, 'confirm new password'],
+  ]) {
+    expect(input.type).toBe('password');
+    fireEvent.click(
+      screen.getByRole('button', { name: `Show ${label}`, exact: true }),
+    );
+    expect(input.type).toBe('text');
+    fireEvent.click(
+      screen.getByRole('button', { name: `Hide ${label}`, exact: true }),
+    );
+    expect(input.type).toBe('password');
+  }
+  fireEvent.change(current, { target: { value: 'CorrectCurrent9!' } });
+  fireEvent.change(next, { target: { value: 'NextSecret9!' } });
+  fireEvent.change(confirm, { target: { value: 'Different9!' } });
+  const submit = screen.getByRole('button', {
+    name: 'Change password',
+    exact: true,
+  });
+  fireEvent.click(submit);
+  expect(screen.getByText('Passwords do not match.').id).toBe(
+    confirm.getAttribute('aria-describedby'),
+  );
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  fireEvent.change(confirm, { target: { value: 'NextSecret9!' } });
+  fireEvent.click(submit);
+  const error = await screen.findByText('The current password is incorrect.');
+  expect(error.closest('form')).toBe(submit.closest('form'));
+  expect(error.id).toBe(current.getAttribute('aria-describedby'));
+  fireEvent.change(current, { target: { value: 'ActualCurrent9!' } });
+  expect(screen.queryByText('The current password is incorrect.')).toBeNull();
+  fireEvent.click(submit);
+  const policy = await screen.findByText('Password needs a number.');
+  expect(policy.id).toBe(next.getAttribute('aria-describedby'));
+  expect(current.getAttribute('aria-invalid')).toBe('false');
+  fireEvent.change(next, { target: { value: 'FinalSecret9!' } });
+  fireEvent.change(confirm, { target: { value: 'FinalSecret9!' } });
+  fireEvent.click(submit);
+  const success = await screen.findByText(
+    'Password changed. Other sessions were signed out.',
+  );
+  expect(success.closest('form')).toBe(submit.closest('form'));
+  expect(current.value).toBe('');
+  expect(next.value).toBe('');
+  expect(confirm.value).toBe('');
+  expect(JSON.parse(fetchMock.mock.calls[3][1].body)).toEqual({
+    password: 'ActualCurrent9!',
+    newPassword: 'FinalSecret9!',
+    confirmPassword: 'FinalSecret9!',
+  });
+  vi.unstubAllGlobals();
+});
