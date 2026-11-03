@@ -1101,8 +1101,13 @@ button:active:not(:disabled) {
   position: sticky;
   top: 0;
   height: 100dvh;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
   padding-top: 34px;
   background: linear-gradient(160deg, #14213d, #1e3055);
+}
+.shell > aside > * {
+  flex-shrink: 0;
 }
 .shell > main {
   min-width: 0;
@@ -1510,6 +1515,8 @@ input[type='radio'] {
     position: relative;
     width: 100%;
     height: auto;
+    overflow-y: visible;
+    scrollbar-gutter: auto;
     flex-basis: auto;
     display: flex;
     flex-direction: row;

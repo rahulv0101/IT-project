@@ -13,6 +13,7 @@ import { GroupChat } from './group-chat.jsx';
 import { AdminPage } from './admin.jsx';
 import { PasswordInput, PasswordRequirements } from './password-fields.jsx';
 import { PwaStatus } from './pwa.jsx';
+import { labSrcDoc } from './lab-preview.js';
 import { QuizReview } from './quiz-review.jsx';
 import {
   ROLE_SCREENS,
@@ -866,34 +867,6 @@ function State({ state, empty = 'Nothing here yet.' }) {
   return null;
 }
 
-const labSrcDoc = (
-  html,
-  css,
-  js,
-  checks = [],
-) => `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:"><style>${css}</style></head><body>${html}<script>
-(() => {
-  const send = (message) => parent.postMessage(message, '*');
-  const safe = (value) => { try { return String(value); } catch (_) { return '[unprintable]'; } };
-  const originalLog = console.log, originalError = console.error;
-  console.log = (...args) => { send({ type: 'console', level: 'log', text: args.map(safe).join(' ') }); originalLog(...args); };
-  console.error = (...args) => { send({ type: 'console', level: 'error', text: args.map(safe).join(' ') }); originalError(...args); };
-  const checks = ${JSON.stringify(checks)};
-  const runChecks = () => checks.map((check) => { try {
-    const node = check.selector ? document.querySelector(check.selector) : null;
-    if (check.type === 'element_exists') return { passed: Boolean(node) };
-    if (check.type === 'text_contains') return { passed: Boolean(node && node.textContent.includes(check.text)) };
-    if (check.type === 'attribute_equals') return { passed: Boolean(node && node.getAttribute(check.attribute) === String(check.expected)) };
-    if (check.type === 'computed_style_equals') return { passed: Boolean(node && getComputedStyle(node)[check.property] === String(check.expected)) };
-    if (check.type === 'element_count') return { passed: document.querySelectorAll(check.selector).length === Number(check.expected) };
-    if (check.type === 'function_returns') { const fn = window[check.functionName]; return { passed: typeof fn === 'function' && fn(...(check.args || [])) === check.expected }; }
-    return { passed: false };
-  } catch (_) { return { passed: false }; } });
-  window.addEventListener('message', (event) => { if (event.source !== parent || event.data?.type !== 'run-checks') return; send({ type: 'checks', results: runChecks() }); });
-  const beat = () => send({ type: 'heartbeat' }); setInterval(beat, 500); beat();
-  try { ${js} } catch (error) { console.error(error?.message || 'Your script could not run.'); }
-})();</script></body></html>`;
-
 // ── Practice Lab student players ───────────────────────────────────────────
 export function CodeLabPlayer({ lab, onBack }) {
   const [tab, setTab] = useState('html');
@@ -903,6 +876,9 @@ export function CodeLabPlayer({ lab, onBack }) {
     js: lab.config?.starterJs || '',
   });
   const [frameKey, setFrameKey] = useState(0);
+  const [previewCode, setPreviewCode] = useState(code);
+  const [running, setRunning] = useState(false);
+  const [draftError, setDraftError] = useState('');
   const [ran, setRan] = useState(false);
   const [logs, setLogs] = useState([]);
   const [checks, setChecks] = useState([]);
@@ -910,6 +886,11 @@ export function CodeLabPlayer({ lab, onBack }) {
   const [message, setMessage] = useState('');
   const frameRef = useRef(null);
   const lastBeat = useRef(Date.now());
+  const revision = useRef(0);
+  const activeRun = useRef(false);
+  const runErrors = useRef(false);
+  const hasErrors =
+    runErrors.current || logs.some((item) => item.level === 'error');
   const original = {
     html: lab.config?.starterHtml || '',
     css: lab.config?.starterCss || '',
@@ -920,15 +901,30 @@ export function CodeLabPlayer({ lab, onBack }) {
       if (!frameRef.current || event.source !== frameRef.current.contentWindow)
         return;
       if (event.data?.type === 'heartbeat') lastBeat.current = Date.now();
-      if (event.data?.type === 'console')
+      if (event.data?.type === 'console' && activeRun.current) {
+        if (event.data.level === 'error') {
+          runErrors.current = true;
+          setChecks((items) => items.map(() => ({ passed: false })));
+        }
         setLogs((items) => [...items.slice(-19), event.data]);
-      if (event.data?.type === 'checks') setChecks(event.data.results);
+      }
+      if (event.data?.type === 'checks' && activeRun.current)
+        setChecks(
+          event.data.results.map((item) => ({
+            passed: Boolean(item.passed) && !runErrors.current,
+          })),
+        );
     };
     window.addEventListener('message', listener);
     const watchdog = window.setInterval(() => {
-      if (Date.now() - lastBeat.current > 3000) {
+      if (document.hidden) {
+        lastBeat.current = Date.now();
+        return;
+      }
+      if (activeRun.current && Date.now() - lastBeat.current > 3000) {
         setSlow(true);
-        setFrameKey((value) => value + 1);
+        activeRun.current = false;
+        setChecks([]);
         lastBeat.current = Date.now();
       }
     }, 500);
@@ -937,34 +933,55 @@ export function CodeLabPlayer({ lab, onBack }) {
       window.clearInterval(watchdog);
     };
   }, []);
-  const run = () => {
-    setSlow(false);
-    setRan(true);
-    setLogs([]);
-    setChecks([]);
-    setFrameKey((value) => value + 1);
+  const run = async () => {
+    if (running) return;
+    const currentRevision = revision.current;
+    setRunning(true);
+    try {
+      const { validateLabHtml } = await import('./lab-validation.js');
+      const diagnostics = validateLabHtml(code.html);
+      if (currentRevision !== revision.current) return;
+      runErrors.current = diagnostics.length > 0;
+      activeRun.current = true;
+      lastBeat.current = Date.now();
+      setSlow(false);
+      setRan(true);
+      setLogs(diagnostics);
+      setChecks([]);
+      setPreviewCode({ ...code });
+      setFrameKey((value) => value + 1);
+    } catch {
+      if (currentRevision !== revision.current) return;
+      runErrors.current = true;
+      activeRun.current = false;
+      setChecks([]);
+      setLogs([
+        {
+          level: 'error',
+          text: 'Code validation could not start. Please try Run again.',
+        },
+      ]);
+    } finally {
+      setRunning(false);
+    }
   };
-  useEffect(() => {
-    if (!ran) return;
-    const timer = window.setTimeout(
-      () =>
-        frameRef.current?.contentWindow?.postMessage(
-          { type: 'run-checks' },
-          '*',
-        ),
-      100,
-    );
-    return () => window.clearTimeout(timer);
-  }, [ran, frameKey]);
   const save = async () => {
+    setDraftError('');
+    setMessage('');
     try {
       const result = await api(`/labs/${lab.lab_id}/attempt`, {
         method: 'PUT',
         body: JSON.stringify({
           submission: code,
-          checksPassed: checks.filter((item) => item.passed).length,
+          checksPassed:
+            hasErrors || slow ? 0 : checks.filter((item) => item.passed).length,
           checksTotal: checks.length,
-          completed: checks.length > 0 && checks.every((item) => item.passed),
+          completed:
+            ran &&
+            !hasErrors &&
+            !slow &&
+            checks.length > 0 &&
+            checks.every((item) => item.passed),
         }),
       });
       setMessage(
@@ -973,7 +990,7 @@ export function CodeLabPlayer({ lab, onBack }) {
           : 'Draft saved. Checks run in your browser.',
       );
     } catch (error) {
-      setMessage(error.message);
+      setDraftError(error.message);
     }
   };
   useEffect(() => {
@@ -981,21 +998,32 @@ export function CodeLabPlayer({ lab, onBack }) {
     api(`/labs/${lab.lab_id}/attempt`)
       .then((body) => {
         const saved = body.attempt?.submission;
-        if (live && saved)
-          setCode({
+        if (live && saved && revision.current === 0) {
+          const restored = {
             html: saved.html ?? original.html,
             css: saved.css ?? original.css,
             js: saved.js ?? original.js,
-          });
+          };
+          setCode(restored);
+          setPreviewCode(restored);
+        }
       })
-      .catch(() => {});
+      .catch((error) => {
+        if (live)
+          setDraftError(`Saved draft could not be loaded: ${error.message}`);
+      });
     return () => {
       live = false;
     };
   }, [lab.lab_id]);
   const update = (value) => {
+    revision.current++;
+    activeRun.current = false;
+    runErrors.current = false;
     setChecks([]);
     setRan(false);
+    setLogs([]);
+    setMessage('');
     setCode((current) => ({ ...current, [tab]: value.slice(0, 20000) }));
   };
   return (
@@ -1012,7 +1040,23 @@ export function CodeLabPlayer({ lab, onBack }) {
           <p>{lab.instructions}</p>
         </div>
         <div className="lab-actions">
-          <button className="secondary" onClick={() => setCode(original)}>
+          <button
+            className="secondary"
+            onClick={() => {
+              revision.current++;
+              activeRun.current = false;
+              runErrors.current = false;
+              setCode(original);
+              setPreviewCode(original);
+              setChecks([]);
+              setLogs([]);
+              setRan(false);
+              setSlow(false);
+              setMessage('');
+              setDraftError('');
+              setFrameKey((value) => value + 1);
+            }}
+          >
             Reset
           </button>
           <button
@@ -1025,7 +1069,7 @@ export function CodeLabPlayer({ lab, onBack }) {
           >
             Show hint
           </button>
-          <button className="primary" onClick={save}>
+          <button className="primary" onClick={save} disabled={running}>
             Save draft
           </button>
         </div>
@@ -1035,9 +1079,14 @@ export function CodeLabPlayer({ lab, onBack }) {
           {message}
         </p>
       )}
+      {draftError && (
+        <p className="field-error" role="alert">
+          {draftError}
+        </p>
+      )}
       {slow && (
         <p className="field-error" role="alert">
-          Your code ran too long and was stopped.
+          Preview stopped responding. Reset your code or try Run again.
         </p>
       )}
       {/* Editor and sandbox preview stack on mobile and align on wide screens. */}
@@ -1069,9 +1118,14 @@ export function CodeLabPlayer({ lab, onBack }) {
               spellCheck="false"
             />
           </div>
-          <button className="primary" onClick={run}>
-            Run
+          <button className="primary" onClick={run} disabled={running}>
+            {running ? 'Checking…' : 'Run'}
           </button>
+          {hasErrors && (
+            <p className="field-error" role="alert">
+              Code errors found. Fix the errors in the console, then Run again.
+            </p>
+          )}
         </article>
         <article className="card lab-preview">
           <h2>Live preview</h2>
@@ -1081,9 +1135,9 @@ export function CodeLabPlayer({ lab, onBack }) {
             title="Code preview"
             sandbox="allow-scripts"
             srcDoc={labSrcDoc(
-              code.html,
-              code.css,
-              code.js,
+              slow ? '' : previewCode.html,
+              slow ? '' : previewCode.css,
+              slow ? '' : previewCode.js,
               lab.config?.checks || [],
             )}
           />
@@ -1096,7 +1150,11 @@ export function CodeLabPlayer({ lab, onBack }) {
                 </p>
               ))
             ) : (
-              <p className="muted">Run your code to see messages.</p>
+              <p className="muted">
+                {ran
+                  ? 'Run finished. No console messages.'
+                  : 'Run your code to see messages.'}
+              </p>
             )}
           </div>
         </article>
@@ -4003,14 +4061,16 @@ export function Quizzes({
   const [creating, setCreating] = useState(false);
   const [reviewQuizId, setReviewQuizId] = useState('');
   const [editingQuizId, setEditingQuizId] = useState('');
-  const modules = useData('/modules');
+  const [refresh, setRefresh] = useState(0);
+  const modules = useData('/modules', refresh);
   const [moduleId, setModuleId] = useState('');
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const quizzes = useData(
     moduleId
       ? `/modules/${moduleId}/quizzes?page=${page}&pageSize=20&search=${encodeURIComponent(search)}`
-      : '/modules',
+      : null,
+    refresh,
   );
   if (reviewQuizId && user?.role === 'lecturer')
     return (
@@ -4046,10 +4106,29 @@ export function Quizzes({
           ? 'Review questions and answers from your AI-generated and manually created quizzes.'
           : 'Choose a published quiz to practise or complete your scored attempt.'}
       </p>
+      <State
+        state={modules}
+        empty={
+          user?.role === 'lecturer'
+            ? 'Create a module first to manage its quizzes.'
+            : 'No modules are available. Enrol in a module from Modules to access its quizzes.'
+        }
+      />
+      {modules.error && (
+        <button
+          className="secondary"
+          onClick={() => setRefresh((value) => value + 1)}
+        >
+          Retry loading modules
+        </button>
+      )}
       <label htmlFor="quizzes-module">Module</label>
       <select
         id="quizzes-module"
         value={moduleId}
+        disabled={
+          modules.loading || Boolean(modules.error) || modules.data.length === 0
+        }
         onChange={(event) => {
           setModuleId(event.target.value);
           setPage(1);
@@ -4146,9 +4225,9 @@ export function Quizzes({
             </div>
           ) : null}
         </>
-      ) : (
+      ) : !modules.loading && !modules.error && modules.data.length > 0 ? (
         <p className="empty-state">Choose a module to view quizzes.</p>
-      )}
+      ) : null}
     </section>
   );
 }
