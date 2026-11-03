@@ -47,3 +47,22 @@ export async function emailDomainStatus(email, resolver = emailDns) {
     ? 'unavailable'
     : 'invalid';
 }
+
+/** The same mail-routing validation and inline feedback for every creation form.
+ * @param {string} email
+ */
+export async function emailDomainValidation(email) {
+  const status = await emailDomainStatus(email);
+  if (status === 'valid') return null;
+  return {
+    status: status === 'invalid' ? 422 : 503,
+    code:
+      status === 'invalid'
+        ? 'INVALID_EMAIL_DOMAIN'
+        : 'EMAIL_DOMAIN_UNAVAILABLE',
+    message:
+      status === 'invalid'
+        ? 'This email domain cannot receive mail. Check the spelling of your email address.'
+        : 'We could not verify this email domain right now. Please try again.',
+  };
+}

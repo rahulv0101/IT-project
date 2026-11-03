@@ -1,5 +1,8 @@
 // @ts-nocheck - Express route dependencies and PostgreSQL rows are runtime-shaped.
 import bcrypt from 'bcryptjs';
+import { verificationMailFailure } from '../email.js';
+import { emailDomainValidation } from '../validation/email-domain.js';
+import { passwordIsAllowed } from '../validation/identity.js';
 import { registerAccountManagement } from './accounts.js';
 import { z } from 'zod';
 import { noProfanity, profanityMessage } from '../profanity/index.js';
@@ -36,6 +39,7 @@ export function registerAdminRoutes({
   requireAuth,
   error,
   requestId,
+  issueVerificationMail,
 }) {
   const parse = (schema, value, req, res) => {
     const result = schema.safeParse(value);
@@ -87,6 +91,25 @@ export function registerAdminRoutes({
     );
   const admin = [requireAuth, requireAdmin];
 
+  const deliverVerification = async (user) => {
+    let delivery = 'sent';
+    try {
+      await issueVerificationMail(user.user_id, user.email);
+    } catch (cause) {
+      delivery = 'unavailable';
+      console.error(
+        JSON.stringify({
+          ...verificationMailFailure(cause),
+          code: 'MANAGED_VERIFICATION_DELIVERY_FAILED',
+        }),
+      );
+    }
+    return {
+      ...user,
+      needs_email_verification: true,
+      verification_delivery: delivery,
+    };
+  };
   registerAccountManagement({
     app,
     pool,
@@ -95,6 +118,7 @@ export function registerAdminRoutes({
     requestId,
     audit,
     reason,
+    deliverVerification,
   });
 
   app.get('/api/v1/admin/dashboard', ...admin, async (req, res, next) => {
@@ -153,7 +177,7 @@ export function registerAdminRoutes({
       const search = query.search ? `%${query.search}%` : null;
       const result = await pool.query(
         `SELECT u.user_id,u.email,u.full_name,u.role,u.account_status,u.email_verified_at,
-                u.requires_password_reset,u.created_date,
+                u.requires_password_reset,u.requires_email_verification,u.created_date,
                 false AS mfa_enabled,
                 count(*) OVER()::int total
            FROM users u
@@ -204,13 +228,34 @@ export function registerAdminRoutes({
         res,
       );
       if (!data) return;
+      if (
+        !passwordIsAllowed(data.temporaryPassword, data.email, data.firstName)
+      )
+        return error(
+          res,
+          422,
+          'VALIDATION_ERROR',
+          'Choose a less common password that does not contain your email or first name.',
+          requestId(req),
+        );
+      const domainIssue = await emailDomainValidation(data.email);
+      if (domainIssue)
+        return error(
+          res,
+          domainIssue.status,
+          domainIssue.code,
+          domainIssue.message,
+          requestId(req),
+          { email: domainIssue.message },
+        );
+
       const fullName = [data.firstName, data.lastName]
         .filter(Boolean)
         .join(' ');
       const hash = await bcrypt.hash(data.temporaryPassword, 12);
       const created = await pool.query(
-        `INSERT INTO users(email,password_hash,role,full_name,first_name,last_name,email_verified_at,requires_password_reset)
-         VALUES($1,$2,'lecturer',$3,$4,$5,now(),true)
+        `INSERT INTO users(email,password_hash,role,full_name,first_name,last_name,email_verified_at,requires_password_reset,requires_email_verification)
+         VALUES($1,$2,'lecturer',$3,$4,$5,NULL,true,true)
          RETURNING user_id,email,full_name,role,account_status,requires_password_reset`,
         [data.email, hash, fullName, data.firstName, data.lastName || null],
       );
@@ -221,7 +266,9 @@ export function registerAdminRoutes({
         created.rows[0].user_id,
         data.reason,
       );
-      res.status(201).json({ user: created.rows[0] });
+      res
+        .status(201)
+        .json({ user: await deliverVerification(created.rows[0]) });
     } catch (cause) {
       if (cause.code === '23505')
         return error(
@@ -309,7 +356,7 @@ export function registerAdminRoutes({
         target.rows[0].account_status === 'active'
       ) {
         const active = await client.query(
-          "SELECT count(*)::int count FROM users WHERE role='admin' AND account_status='active'",
+          "SELECT count(*)::int count FROM users WHERE role='admin' AND account_status='active' AND (NOT requires_email_verification OR email_verified_at IS NOT NULL)",
         );
         if (active.rows[0].count <= 1)
           return error(

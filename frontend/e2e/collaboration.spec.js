@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import { readFile } from 'node:fs/promises';
 const password = 'EduQuestDemo123!';
 async function login(page, email, loginPassword = password) {
   await page.route(
@@ -33,10 +34,10 @@ test('admin revokes sessions, suspends and deactivates accounts without losing u
   await page.getByLabel('First name', { exact: true }).fill('Browser');
   await page.getByLabel('Last name', { exact: true }).fill('Student');
   await page.getByLabel('Email', { exact: true }).fill(email);
-  await page.getByLabel('Temporary password').fill(temporaryPassword);
+  await page.getByLabel('Password', { exact: true }).fill(temporaryPassword);
   await page
-    .getByLabel('Reason', { exact: true })
-    .fill('Browser access validation');
+    .getByLabel('Confirm password', { exact: true })
+    .fill(temporaryPassword);
   await page.getByRole('button', { name: 'Create user', exact: true }).click();
   await expect(page.getByText(/Browser Student was added/)).toBeVisible();
   await page.getByLabel('Search users').fill(email);
@@ -47,7 +48,38 @@ test('admin revokes sessions, suspends and deactivates accounts without losing u
   });
   const student = await context.newPage();
   try {
-    await login(student, email, temporaryPassword);
+    await student.route(
+      /^https:\/\/(fonts\.googleapis\.com|fonts\.gstatic\.com)\//,
+      (r) => r.abort(),
+    );
+    await student.goto('/');
+    await student.getByLabel('Email', { exact: true }).fill(email);
+    await student
+      .getByLabel('Password', { exact: true })
+      .fill(temporaryPassword);
+    await student.getByRole('button', { name: 'Log in', exact: true }).click();
+    await expect(
+      student.getByRole('heading', { name: 'Check your email', exact: true }),
+    ).toBeVisible();
+    const users = (
+      await (
+        await page.request.get(
+          `/api/v1/admin/users?search=${encodeURIComponent(email)}`,
+        )
+      ).json()
+    ).data;
+    const created = users.find((u) => u.email === email);
+    const code = (
+      await readFile(`docs/dev-mail/${created.user_id}.txt`, 'utf8')
+    ).match(/verification code: (\d{6})/)[1];
+    await student.getByLabel('Verification code', { exact: true }).fill(code);
+    await student
+      .getByRole('button', { name: 'Verify email', exact: true })
+      .click();
+    await expect(
+      student.getByRole('button', { name: 'Log out', exact: true }),
+    ).toBeVisible();
+
     await row
       .getByRole('button', { name: 'Revoke sessions', exact: true })
       .click();

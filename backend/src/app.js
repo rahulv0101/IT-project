@@ -19,8 +19,8 @@ import rateLimit from 'express-rate-limit';
 import multer from 'multer';
 import { z } from 'zod';
 import { registerStudentNetworkRoutes } from './groups/student-network.js';
-import { emailDomainStatus } from './validation/email-domain.js';
-import { sendVerificationEmail } from './email.js';
+import { emailDomainValidation } from './validation/email-domain.js';
+import { sendVerificationEmail, verificationMailFailure } from './email.js';
 import {
   issueEmailCode,
   verifyEmailCode,
@@ -380,7 +380,7 @@ const requireAuth = async (req, res, next) => {
         requestId(req),
       );
     const result = await pool.query(
-      `SELECT u.user_id, u.role, u.full_name, u.first_name, u.last_name, u.student_type, u.student_year, u.email, u.email_verified_at FROM sessions s JOIN users u ON u.user_id=s.user_id WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at > now() AND u.account_status='active'`,
+      `SELECT u.user_id, u.role, u.full_name, u.first_name, u.last_name, u.student_type, u.student_year, u.email, u.email_verified_at,u.requires_email_verification FROM sessions s JOIN users u ON u.user_id=s.user_id WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at > now() AND u.account_status='active'`,
       [sessionHash(token)],
     );
     if (!result.rowCount)
@@ -403,6 +403,26 @@ const requireAuth = async (req, res, next) => {
       needsEmailVerification: !result.rows[0].email_verified_at,
       email: result.rows[0].email,
     };
+    const verificationRoute =
+      (req.method === 'GET' && req.path === '/api/v1/auth/me') ||
+      (req.method === 'POST' &&
+        [
+          '/api/v1/auth/verify-email',
+          '/api/v1/auth/resend-verification',
+          '/api/v1/auth/logout',
+        ].includes(req.path));
+    if (
+      result.rows[0].requires_email_verification &&
+      !result.rows[0].email_verified_at &&
+      !verificationRoute
+    )
+      return error(
+        res,
+        403,
+        'EMAIL_NOT_VERIFIED',
+        'Verify your email before accessing your account.',
+        requestId(req),
+      );
     if (isProfanityCooldownActive(req.user.userId))
       return error(
         res,
@@ -618,23 +638,16 @@ app.post('/api/v1/auth/register', async (req, res, next) => {
         'Choose a less common password that does not contain your email or first name.',
         requestId(req),
       );
-    const domainStatus = await emailDomainStatus(data.email);
-    if (domainStatus !== 'valid') {
-      const message =
-        domainStatus === 'invalid'
-          ? 'This email domain cannot receive mail. Check the spelling of your email address.'
-          : 'We could not verify this email domain right now. Please try again.';
+    const domainIssue = await emailDomainValidation(data.email);
+    if (domainIssue)
       return error(
         res,
-        domainStatus === 'invalid' ? 422 : 503,
-        domainStatus === 'invalid'
-          ? 'INVALID_EMAIL_DOMAIN'
-          : 'EMAIL_DOMAIN_UNAVAILABLE',
-        message,
+        domainIssue.status,
+        domainIssue.code,
+        domainIssue.message,
         requestId(req),
-        { email: message },
+        { email: domainIssue.message },
       );
-    }
     const hash = await bcrypt.hash(data.password, 12);
     const fullName = [identity.firstName, identity.lastName]
       .filter(Boolean)
@@ -656,12 +669,7 @@ app.post('/api/v1/auth/register', async (req, res, next) => {
       await issueVerificationMail(result.rows[0].user_id, data.email);
     } catch (mailError) {
       verificationDelivery = 'unavailable';
-      console.error(
-        JSON.stringify({
-          code: 'VERIFICATION_DELIVERY_FAILED',
-          errorType: mailError.name,
-        }),
-      );
+      console.error(JSON.stringify(verificationMailFailure(mailError)));
     }
     if (!(await issueSession(result.rows[0].user_id, res)))
       return error(
@@ -721,6 +729,7 @@ app.post(
             requestId(req),
           );
         }
+        console.error(JSON.stringify(verificationMailFailure(mailError)));
         return error(
           res,
           503,
@@ -4686,7 +4695,14 @@ registerTimerTriviaRoutes({ app, pool, requireAuth, error, requestId });
 registerSessionRoutes({ app, pool, requireAuth, error, requestId });
 registerMessagingRoutes({ app, pool, requireAuth, error, requestId });
 registerStudentNetworkRoutes({ app, pool, requireAuth, error, requestId });
-registerAdminRoutes({ app, pool, requireAuth, error, requestId });
+registerAdminRoutes({
+  app,
+  pool,
+  requireAuth,
+  error,
+  requestId,
+  issueVerificationMail,
+});
 
 app.use((err, req, res, _next) => {
   if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {

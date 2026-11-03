@@ -11,6 +11,7 @@ import {
 } from './study-sessions.jsx';
 import { GroupChat } from './group-chat.jsx';
 import { AdminPage } from './admin.jsx';
+import { PasswordInput, PasswordRequirements } from './password-fields.jsx';
 import { PwaStatus } from './pwa.jsx';
 import { QuizReview } from './quiz-review.jsx';
 import {
@@ -51,22 +52,6 @@ const api = async (path, options = {}) => {
     );
   return body;
 };
-
-function PasswordInput({ show, onToggle, label, ...props }) {
-  return (
-    <span className="password-input-wrap">
-      <input type={show ? 'text' : 'password'} {...props} />
-      <button
-        type="button"
-        className="password-toggle"
-        onClick={onToggle}
-        aria-label={`${show ? 'Hide' : 'Show'} ${label}`}
-      >
-        {show ? 'Hide' : 'Show'}
-      </button>
-    </span>
-  );
-}
 
 export function EmailCodeVerification({ user, onVerified, onBack, delivery }) {
   const [code, setCode] = useState('');
@@ -234,13 +219,6 @@ function Auth({ onLogin }) {
   const [verification, setVerification] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
-  const passwordRules = [
-    ['At least 10 characters', form.password.length >= 10],
-    ['At least one uppercase letter', /[A-Z]/.test(form.password)],
-    ['At least one lowercase letter', /[a-z]/.test(form.password)],
-    ['At least one number', /[0-9]/.test(form.password)],
-    ['At least one special character', /[^A-Za-z0-9]/.test(form.password)],
-  ];
   const setField = (key, value) => {
     setForm((current) => ({ ...current, [key]: value }));
     setFields((current) => ({ ...current, [key]: '' }));
@@ -405,25 +383,7 @@ function Auth({ onLogin }) {
               maxLength={200}
             />
             {mode === 'register' && (
-              <>
-                {' '}
-                <p className="sr-only">
-                  Password strength:{' '}
-                  {passwordRules.filter(([, met]) => met).length} of 5 rules met
-                </p>
-                <ul
-                  className="password-rules"
-                  aria-label="Password requirements"
-                >
-                  {passwordRules.map(([label, met]) => (
-                    <li key={label} className={met ? 'met' : 'unmet'}>
-                      <span aria-hidden="true">{met ? '✓' : '○'} </span>
-                      {label}
-                      <span className="sr-only"> {met ? 'met' : 'unmet'}</span>
-                    </li>
-                  ))}
-                </ul>
-              </>
+              <PasswordRequirements password={form.password} />
             )}
             {fieldError('password')}
           </div>

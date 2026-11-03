@@ -3,6 +3,33 @@ import path from 'node:path';
 import { mkdir, writeFile, chmod } from 'node:fs/promises';
 import nodemailer from 'nodemailer';
 
+// Retry only before the SMTP session starts: retrying DATA could send duplicates.
+const retryableConnectionFailure = (error) =>
+  error.command === 'CONN' &&
+  ['ESOCKET', 'ETIMEDOUT', 'ECONNECTION', 'EDNS'].includes(error.code);
+
+export function verificationMailFailure(error) {
+  return {
+    code: 'VERIFICATION_DELIVERY_FAILED',
+    smtpCode: /^[A-Z_]{1,40}$/.test(error?.code || '') ? error.code : 'UNKNOWN',
+    smtpPhase: [
+      'CONN',
+      'EHLO',
+      'HELO',
+      'STARTTLS',
+      'AUTH',
+      'MAIL',
+      'RCPT',
+      'DATA',
+    ].includes(error?.command)
+      ? error.command
+      : 'UNKNOWN',
+    smtpStatus: Number.isInteger(error?.responseCode)
+      ? error.responseCode
+      : null,
+  };
+}
+
 export async function sendVerificationEmail({
   userId,
   email,
@@ -52,12 +79,23 @@ export async function sendVerificationEmail({
         ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD }
         : undefined,
     });
-    await transport.sendMail({
-      from: process.env.SMTP_FROM,
-      to: email,
-      subject,
-      text,
-    });
+    try {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await transport.sendMail({
+            from: process.env.SMTP_FROM,
+            to: email,
+            subject,
+            text,
+          });
+          break;
+        } catch (error) {
+          if (attempt > 0 || !retryableConnectionFailure(error)) throw error;
+        }
+      }
+    } finally {
+      transport.close?.();
+    }
     return { delivery: 'smtp' };
   }
   const directory = path.resolve('docs/dev-mail');

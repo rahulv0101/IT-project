@@ -3,6 +3,10 @@ import AxeBuilder from '@axe-core/playwright';
 import { readFile } from 'node:fs/promises';
 
 test.beforeEach(async ({ page }) => {
+  await page.route(
+    /^https:\/\/(fonts\.googleapis\.com|fonts\.gstatic\.com)\//,
+    (route) => route.abort(),
+  );
   expect(
     (await page.request.post('/api/v1/__test/reset-auth-state')).status(),
   ).toBe(204);

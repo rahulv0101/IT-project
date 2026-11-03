@@ -56,11 +56,19 @@ it('admin creates a user and confirms deactivation with an email and reason', as
     ['First name', 'New'],
     ['Last name', 'Person'],
     ['Email', 'new@example.com'],
-    ['Temporary password', 'TemporarySecure99!'],
-    ['Reason', 'Testing account creation'],
+    ['Password', 'TemporarySecure99!'],
+    ['Confirm password', 'TemporarySecure99!'],
   ])
     fireEvent.change(screen.getByLabelText(label), { target: { value } });
   fireEvent.click(screen.getByRole('button', { name: 'Create user' }));
+  const creation = fetch.mock.calls.find(([, o]) => o.method === 'POST');
+  expect(JSON.parse(creation[1].body)).toMatchObject({
+    password: 'TemporarySecure99!',
+    confirmPassword: 'TemporarySecure99!',
+    role: 'student',
+  });
+  expect(JSON.parse(creation[1].body)).not.toHaveProperty('temporaryPassword');
+  expect(screen.queryByLabelText('Reason', { exact: true })).toBeNull();
   await screen.findByRole('button', { name: 'Deactivate New Person' });
   fireEvent.click(
     screen.getByRole('button', { name: 'Deactivate New Person' }),
@@ -266,3 +274,79 @@ it.each(['student', 'lecturer', 'admin'])(
     ).toBeNull();
   },
 );
+
+it('admin Add user matches signup validation and role-specific fields', async () => {
+  const fetch = vi.fn(async (url, opts = {}) =>
+    opts.method === 'POST'
+      ? response(
+          {
+            error: {
+              message:
+                'This email domain cannot receive mail. Check the spelling of your email address.',
+              fields: {
+                email:
+                  'This email domain cannot receive mail. Check the spelling of your email address.',
+              },
+            },
+          },
+          422,
+        )
+      : response({ data: [] }),
+  );
+  vi.stubGlobal('fetch', fetch);
+  render(<AdminUsers currentUserId="owner" />);
+  fireEvent.click(screen.getByRole('button', { name: 'Add user' }));
+  expect(screen.getByLabelText('Last name', { exact: true }).required).toBe(
+    true,
+  );
+  for (const [label, value] of [
+    ['First name', 'New'],
+    ['Last name', 'Person'],
+    ['Email', 'learner@gmail.con'],
+    ['Password', 'StrongSecret9!'],
+    ['Confirm password', 'WrongSecret9!'],
+  ])
+    fireEvent.change(screen.getByLabelText(label, { exact: true }), {
+      target: { value },
+    });
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Show password', exact: true }),
+  );
+  expect(screen.getByLabelText('Password', { exact: true }).type).toBe('text');
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Hide password', exact: true }),
+  );
+  fireEvent.submit(screen.getByRole('form', { name: 'Add a user' }));
+  await screen.findByText('Passwords do not match.');
+  expect(fetch.mock.calls.filter(([, o]) => o?.method === 'POST')).toHaveLength(
+    0,
+  );
+  fireEvent.change(screen.getByLabelText('Confirm password', { exact: true }), {
+    target: { value: 'StrongSecret9!' },
+  });
+  fireEvent.submit(screen.getByRole('form', { name: 'Add a user' }));
+  await screen.findByText(
+    'This email domain cannot receive mail. Check the spelling of your email address.',
+  );
+  expect(
+    screen
+      .getByLabelText('Email', { exact: true })
+      .getAttribute('aria-invalid'),
+  ).toBe('true');
+  fireEvent.change(
+    screen.getByRole('combobox', { name: 'Role', exact: true }),
+    { target: { value: 'lecturer' } },
+  );
+  expect(screen.queryByLabelText('Year of study')).toBeNull();
+  fireEvent.change(
+    screen.getByRole('combobox', { name: 'Role', exact: true }),
+    { target: { value: 'admin' } },
+  );
+  expect(screen.queryByLabelText('Student type')).toBeNull();
+  fireEvent.change(
+    screen.getByRole('combobox', { name: 'Role', exact: true }),
+    { target: { value: 'student' } },
+  );
+  expect(screen.getByLabelText('Student type')).toBeTruthy();
+  expect(screen.getByLabelText('Year of study')).toBeTruthy();
+});

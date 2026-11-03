@@ -1,5 +1,6 @@
 import { appFetch } from './http.js';
 import React, { useEffect, useState } from 'react';
+import { PasswordInput, PasswordRequirements } from './password-fields.jsx';
 
 async function api(path, options = {}) {
   const r = await appFetch(`/api/v1/admin${path}`, {
@@ -8,7 +9,11 @@ async function api(path, options = {}) {
     headers: { 'content-type': 'application/json' },
   });
   const body = r.status === 204 ? null : await r.json();
-  if (!r.ok) throw new Error(body?.error?.message || 'Unable to update users.');
+  if (!r.ok)
+    throw Object.assign(
+      new Error(body?.error?.message || 'Unable to update users.'),
+      { fields: body?.error?.fields || {} },
+    );
   return body;
 }
 const emptyForm = {
@@ -18,11 +23,14 @@ const emptyForm = {
   role: 'student',
   studentType: 'it',
   studentYear: 1,
-  temporaryPassword: '',
-  reason: '',
+  password: '',
+  confirmPassword: '',
 };
 export function AdminUsers({ currentUserId }) {
   const [form, setForm] = useState(emptyForm);
+  const [fields, setFields] = useState({});
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmation, setShowConfirmation] = useState(false);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [state, setState] = useState({
@@ -76,30 +84,68 @@ export function AdminUsers({ currentUserId }) {
       clearTimeout(timer);
     };
   }, [search, page, refresh]);
-  const change = (key, value) =>
+  const change = (key, value) => {
     setForm((current) => ({ ...current, [key]: value }));
+    setFields((current) => ({
+      ...current,
+      [key]: '',
+      ...(key === 'password' ? { confirmPassword: '' } : {}),
+    }));
+    setError('');
+  };
+  const fieldProps = (key) => ({
+    'aria-invalid': Boolean(fields[key]),
+    'aria-describedby': fields[key] ? `admin-add-${key}-error` : undefined,
+  });
+  const fieldError = (key) =>
+    fields[key] && (
+      <small className="field-error" id={`admin-add-${key}-error`}>
+        {fields[key]}
+      </small>
+    );
   const create = async (event) => {
     event.preventDefault();
     if (busy) return;
-    setBusy(true);
     setError('');
+    setFields({});
     setMessage('');
+    if (form.password !== form.confirmPassword) {
+      setFields({ confirmPassword: 'Passwords do not match.' });
+      setError('Please correct the highlighted field.');
+      return;
+    }
+    setBusy(true);
     try {
       const body = await api('/users', {
         method: 'POST',
         body: JSON.stringify({
-          ...form,
-          lastName: form.lastName.trim() || undefined,
+          firstName: form.firstName,
+          lastName: form.lastName,
+          email: form.email,
+          password: form.password,
+          confirmPassword: form.confirmPassword,
+          role: form.role,
+          ...(form.role === 'student'
+            ? { studentType: form.studentType, studentYear: form.studentYear }
+            : {}),
         }),
       });
       setMessage(
-        `${body.user.full_name} was added. Share the temporary password privately and ask them to change it in Profile.`,
+        `${body.user.full_name} was added. ${body.user.verification_delivery === 'unavailable' ? 'The verification email could not be sent; they can request a new code when signing in.' : 'A verification email has been sent. They must verify their email before account access.'} Share the initial password privately and ask them to change it in Profile.`,
       );
       setForm(emptyForm);
+      setShowPassword(false);
+      setShowConfirmation(false);
+      setFields({});
       setAdding(false);
       setRefresh((v) => v + 1);
     } catch (e) {
-      setError(e.message);
+      setFields(e.fields || {});
+      setError(
+        Object.keys(e.fields || {}).length
+          ? 'Please correct the highlighted fields.'
+          : e.message,
+      );
     } finally {
       setBusy(false);
     }
@@ -184,101 +230,128 @@ export function AdminUsers({ currentUserId }) {
         </p>
       )}
       {adding && (
-        <form className="card account-form" onSubmit={create}>
+        <form
+          className="card account-form"
+          onSubmit={create}
+          aria-label="Add a user"
+        >
           <h3>Add a user</h3>
-          <label>
-            First name
+          {[
+            ['firstName', 'First name', 'given-name'],
+            ['lastName', 'Last name', 'family-name'],
+          ].map(([key, label, autoComplete]) => (
+            <div className="field-group" key={key}>
+              <label htmlFor={`admin-add-${key}`}>{label}</label>
+              <input
+                id={`admin-add-${key}`}
+                value={form[key]}
+                onChange={(e) => change(key, e.target.value)}
+                required
+                autoComplete={autoComplete}
+                maxLength={50}
+                {...fieldProps(key)}
+              />
+              {fieldError(key)}
+            </div>
+          ))}
+          <div className="field-group">
+            <label htmlFor="admin-add-email">Email</label>
             <input
-              value={form.firstName}
-              onChange={(e) => change('firstName', e.target.value)}
-              required
-              maxLength={50}
-            />
-          </label>
-          <label>
-            Last name
-            <input
-              value={form.lastName}
-              onChange={(e) => change('lastName', e.target.value)}
-              maxLength={50}
-            />
-          </label>
-          <label>
-            Email
-            <input
+              id="admin-add-email"
               type="email"
+              autoComplete="email"
               value={form.email}
               onChange={(e) => change('email', e.target.value)}
               required
               maxLength={254}
+              {...fieldProps('email')}
             />
-          </label>
-          <label>
-            Role
+            {fieldError('email')}
+          </div>
+          <div className="field-group">
+            <label htmlFor="admin-add-password">Password</label>
+            <PasswordInput
+              id="admin-add-password"
+              label="password"
+              show={showPassword}
+              onToggle={() => setShowPassword(!showPassword)}
+              autoComplete="new-password"
+              value={form.password}
+              onChange={(e) => change('password', e.target.value)}
+              required
+              minLength={10}
+              maxLength={200}
+              {...fieldProps('password')}
+            />
+            <PasswordRequirements password={form.password} />
+            {fieldError('password')}
+          </div>
+          <div className="field-group">
+            <label htmlFor="admin-add-confirmPassword">Confirm password</label>
+            <PasswordInput
+              id="admin-add-confirmPassword"
+              label="confirmation password"
+              show={showConfirmation}
+              onToggle={() => setShowConfirmation(!showConfirmation)}
+              autoComplete="new-password"
+              value={form.confirmPassword}
+              onChange={(e) => change('confirmPassword', e.target.value)}
+              required
+              maxLength={200}
+              {...fieldProps('confirmPassword')}
+            />
+            {fieldError('confirmPassword')}
+          </div>
+          <div className="field-group">
+            <label htmlFor="admin-add-role">Role</label>
             <select
+              id="admin-add-role"
               value={form.role}
               onChange={(e) => change('role', e.target.value)}
+              required
+              {...fieldProps('role')}
             >
               <option value="student">Student</option>
               <option value="lecturer">Lecturer</option>
               <option value="admin">Admin</option>
             </select>
-          </label>
+            {fieldError('role')}
+          </div>
           {form.role === 'student' && (
             <>
-              <label>
-                Student type
+              <div className="field-group">
+                <label htmlFor="admin-add-studentType">Student type</label>
                 <select
+                  id="admin-add-studentType"
                   value={form.studentType}
                   onChange={(e) => change('studentType', e.target.value)}
+                  {...fieldProps('studentType')}
                 >
                   <option value="it">IT</option>
                   <option value="business">Business</option>
                 </select>
-              </label>
-              <label>
-                Year of study
+                {fieldError('studentType')}
+              </div>
+              <div className="field-group">
+                <label htmlFor="admin-add-studentYear">Year of study</label>
                 <select
+                  id="admin-add-studentYear"
                   value={form.studentYear}
                   onChange={(e) =>
                     change('studentYear', Number(e.target.value))
                   }
+                  {...fieldProps('studentYear')}
                 >
-                  {[1, 2, 3].map((y) => (
-                    <option value={y} key={y}>
-                      Year {y}
+                  {[1, 2, 3].map((year) => (
+                    <option key={year} value={year}>
+                      Year {year}
                     </option>
                   ))}
                 </select>
-              </label>
+                {fieldError('studentYear')}
+              </div>
             </>
           )}
-          <label>
-            Temporary password
-            <input
-              type="password"
-              autoComplete="new-password"
-              value={form.temporaryPassword}
-              onChange={(e) => change('temporaryPassword', e.target.value)}
-              required
-              minLength={10}
-              maxLength={200}
-            />
-          </label>
-          <p className="muted">
-            Use at least 10 characters with uppercase and lowercase letters, a
-            number and a special character. Avoid the user’s name.
-          </p>
-          <label>
-            Reason
-            <textarea
-              value={form.reason}
-              onChange={(e) => change('reason', e.target.value)}
-              required
-              minLength={3}
-              maxLength={500}
-            />
-          </label>
           <button className="primary" disabled={busy}>
             {busy ? 'Adding…' : 'Create user'}
           </button>
@@ -323,7 +396,13 @@ export function AdminUsers({ currentUserId }) {
                       <small>{user.email}</small>
                     </td>
                     <td>{user.role}</td>
-                    <td>{user.account_status}</td>
+                    <td>
+                      {user.account_status === 'active' &&
+                      user.requires_email_verification &&
+                      !user.email_verified_at
+                        ? 'Pending email verification'
+                        : user.account_status}
+                    </td>
                     <td className="admin-actions">
                       <button
                         className="secondary"

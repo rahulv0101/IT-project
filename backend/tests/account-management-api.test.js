@@ -1,9 +1,15 @@
 // @ts-nocheck
 import 'dotenv/config';
 import crypto from 'node:crypto';
+import nodemailer from 'nodemailer';
+import { readFile } from 'node:fs/promises';
 import request from 'supertest';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { sessionFixture } from './helpers/session-cases.js';
+import { emailDns } from '../src/validation/email-domain.js';
+vi.spyOn(emailDns, 'resolveMx').mockResolvedValue([
+  { exchange: 'mx.example.com', priority: 0 },
+]);
 process.env.NODE_ENV = 'development';
 process.env.COOKIE_SECURE = 'false';
 process.env.AUTH_RATE_LIMIT = '1000';
@@ -51,7 +57,7 @@ beforeEach(async () => {
   admin = await administrator();
 });
 describe('administrator account creation and removal', () => {
-  it('creates every supported role with a verified email and required password reset', async () => {
+  it('requires OTP before every newly created role can access account functions', async () => {
     for (const role of ['student', 'lecturer', 'admin']) {
       const data = body(role);
       const r = await call(admin, 'post', '/api/v1/admin/users', data);
@@ -63,13 +69,46 @@ describe('administrator account creation and removal', () => {
       );
       const stored = (
         await pool.query(
-          'SELECT email_verified_at,password_hash,student_type FROM users WHERE user_id=$1',
+          'SELECT email_verified_at,password_hash,student_type,requires_email_verification FROM users WHERE user_id=$1',
           [r.body.user.user_id],
         )
       ).rows[0];
-      expect(stored.email_verified_at).toBeTruthy();
+      expect(stored.email_verified_at).toBeNull();
+      expect(stored.requires_email_verification).toBe(true);
       expect(stored.password_hash).not.toBe(data.temporaryPassword);
       expect(stored.student_type).toBe(role === 'student' ? 'it' : null);
+      const agent = request.agent(app);
+      const login = await agent
+        .post('/api/v1/auth/login')
+        .send({ email: data.email, password: data.temporaryPassword });
+      expect(login.status).toBe(200);
+      expect(login.body.user.needs_email_verification).toBe(true);
+      const endpoint =
+        role === 'admin'
+          ? '/api/v1/admin/dashboard'
+          : role === 'lecturer'
+            ? '/api/v1/modules'
+            : '/api/v1/me/modules';
+      const blocked = await agent.get(endpoint);
+      expect(blocked.status).toBe(403);
+      expect(blocked.body.error.code).toBe('EMAIL_NOT_VERIFIED');
+      expect((await agent.get('/api/v1/auth/me')).status).toBe(200);
+      const code = (
+        await readFile(`docs/dev-mail/${r.body.user.user_id}.txt`, 'utf8')
+      ).match(/verification code: (\d{6})/)[1];
+      expect(
+        (
+          await agent
+            .post('/api/v1/auth/verify-email')
+            .send({ code: code === '000000' ? '000001' : '000000' })
+        ).status,
+      ).toBe(422);
+      expect((await agent.get(endpoint)).status).toBe(403);
+      expect(
+        (await agent.post('/api/v1/auth/verify-email').send({ code })).status,
+      ).toBe(200);
+      expect((await agent.get(endpoint)).status).toBe(200);
+
       expect(
         (await call(admin, 'post', '/api/v1/admin/users', data)).status,
       ).toBe(409);
@@ -241,6 +280,18 @@ describe('administrator account creation and removal', () => {
         .send({ email: data.email, password: data.temporaryPassword });
     const session = await login();
     const cookie = session.headers['set-cookie'][0].split(';')[0];
+    const code = (await readFile(`docs/dev-mail/${id}.txt`, 'utf8')).match(
+      /verification code: (\d{6})/,
+    )[1];
+    expect(
+      (
+        await request(app)
+          .post('/api/v1/auth/verify-email')
+          .set('Cookie', cookie)
+          .send({ code })
+      ).status,
+    ).toBe(200);
+
     expect(
       (
         await call(admin, 'patch', `/api/v1/admin/users/${id}`, {
@@ -341,5 +392,159 @@ describe('administrator account creation and removal', () => {
         )
       ).rows[0].n,
     ).toBe(1);
+  });
+  it('accepts signup-style fields for every role with matching passwords and automatic audit reason', async () => {
+    for (const role of ['student', 'lecturer', 'admin']) {
+      const legacy = body(role);
+      const { temporaryPassword, reason: _reason, ...identity } = legacy;
+      const result = await call(admin, 'post', '/api/v1/admin/users', {
+        ...identity,
+        password: temporaryPassword,
+        confirmPassword: temporaryPassword,
+      });
+      expect(result.status, JSON.stringify(result.body)).toBe(201);
+      expect(result.body.user.role).toBe(role);
+      const audit = (
+        await pool.query(
+          "SELECT reason FROM admin_audit_logs WHERE target_id=$1 AND action='user.created'",
+          [result.body.user.user_id],
+        )
+      ).rows[0];
+      expect(audit.reason).toBe('Account created by an administrator');
+    }
+  });
+  it('rejects invalid email domains and temporary DNS failure for every admin-created role before inserting users or audits', async () => {
+    for (const role of ['student', 'lecturer', 'admin'])
+      for (const code of ['ENOTFOUND', 'ETIMEOUT']) {
+        const data = body(role);
+        emailDns.resolveMx.mockRejectedValueOnce(
+          Object.assign(new Error(code), { code }),
+        );
+        const r = await call(admin, 'post', '/api/v1/admin/users', data);
+        expect(r.status).toBe(code === 'ENOTFOUND' ? 422 : 503);
+        expect(r.body.error.fields.email).toBeTruthy();
+        expect(
+          (await pool.query('SELECT 1 FROM users WHERE email=$1', [data.email]))
+            .rowCount,
+        ).toBe(0);
+      }
+  });
+  it('rejects malformed emails, missing signup names, mismatched confirmations, conflicting password fields and common passwords', async () => {
+    const { temporaryPassword, reason: _reason, ...data } = body();
+    const valid = {
+      ...data,
+      password: temporaryPassword,
+      confirmPassword: temporaryPassword,
+    };
+    for (const [update, field] of [
+      [{ email: 'invalid-email' }, 'email'],
+      [{ lastName: undefined }, 'lastName'],
+      [{ confirmPassword: undefined }, 'confirmPassword'],
+      [{ confirmPassword: 'DifferentPassword9!' }, 'confirmPassword'],
+      [{ temporaryPassword }, 'password'],
+      [
+        { password: 'Password123!', confirmPassword: 'Password123!' },
+        'password',
+      ],
+    ]) {
+      const result = await call(admin, 'post', '/api/v1/admin/users', {
+        ...valid,
+        ...update,
+      });
+      expect(result.status).toBe(422);
+      expect(result.body.error.fields[field]).toBeTruthy();
+    }
+    expect(
+      (await pool.query('SELECT 1 FROM users WHERE email=$1', [data.email]))
+        .rowCount,
+    ).toBe(0);
+  });
+  it('does not let the older lecturer creation route bypass email domain checks', async () => {
+    const {
+      role: _role,
+      studentType: _studentType,
+      studentYear: _studentYear,
+      ...data
+    } = body('lecturer');
+    emailDns.resolveMx.mockRejectedValueOnce(
+      Object.assign(new Error('No mail route'), { code: 'ENOTFOUND' }),
+    );
+    const result = await call(admin, 'post', '/api/v1/admin/lecturers', data);
+    expect(result.status).toBe(422);
+    expect(result.body.error.code).toBe('INVALID_EMAIL_DOMAIN');
+    expect(
+      (await pool.query('SELECT 1 FROM users WHERE email=$1', [data.email]))
+        .rowCount,
+    ).toBe(0);
+  });
+  it('keeps verification mandatory after admin activation and protects its scope from request bodies', async () => {
+    const data = body('admin');
+    const r = await call(admin, 'post', '/api/v1/admin/users', data);
+    expect(r.status).toBe(201);
+    const id = r.body.user.user_id;
+    await call(admin, 'patch', `/api/v1/admin/users/${id}`, {
+      action: 'suspend',
+      reason: 'Pending account review',
+    });
+    await call(admin, 'patch', `/api/v1/admin/users/${id}`, {
+      action: 'activate',
+      reason: 'Restore pending account',
+    });
+    const agent = request.agent(app);
+    await agent
+      .post('/api/v1/auth/login')
+      .send({ email: data.email, password: data.temporaryPassword });
+    expect((await agent.get('/api/v1/admin/users')).body.error.code).toBe(
+      'EMAIL_NOT_VERIFIED',
+    );
+    expect(
+      (await agent.put('/api/v1/auth/me').send({ firstName: 'Changed' }))
+        .status,
+    ).toBe(403);
+    const forged = await call(admin, 'post', '/api/v1/admin/users', {
+      ...body(),
+      requires_email_verification: false,
+      email_verified_at: new Date().toISOString(),
+    });
+    expect(forged.status).toBe(422);
+  });
+  it('keeps an account blocked if email delivery fails and permits verification after a resend', async () => {
+    const transport = vi.spyOn(nodemailer, 'createTransport').mockReturnValue({
+      sendMail: vi.fn().mockRejectedValue(new Error('Simulated mail outage')),
+    });
+    vi.stubEnv('EMAIL_DELIVERY', 'smtp');
+    vi.stubEnv('SMTP_HOST', 'localhost');
+    vi.stubEnv('SMTP_FROM', 'EduQuest Test <test@example.com>');
+    let result;
+    const data = body('lecturer');
+    try {
+      result = await call(admin, 'post', '/api/v1/admin/users', data);
+      expect(result.status).toBe(201);
+      expect(result.body.user.verification_delivery).toBe('unavailable');
+    } finally {
+      transport.mockRestore();
+      vi.unstubAllEnvs();
+    }
+    const agent = request.agent(app);
+    await agent
+      .post('/api/v1/auth/login')
+      .send({ email: data.email, password: data.temporaryPassword });
+    expect((await agent.get('/api/v1/modules')).body.error.code).toBe(
+      'EMAIL_NOT_VERIFIED',
+    );
+    await pool.query(
+      "UPDATE email_verification_codes SET created_at=now()-interval '2 minutes' WHERE user_id=$1",
+      [result.body.user.user_id],
+    );
+    expect(
+      (await agent.post('/api/v1/auth/resend-verification').send({})).status,
+    ).toBe(200);
+    const code = (
+      await readFile(`docs/dev-mail/${result.body.user.user_id}.txt`, 'utf8')
+    ).match(/verification code: (\d{6})/)[1];
+    expect(
+      (await agent.post('/api/v1/auth/verify-email').send({ code })).status,
+    ).toBe(200);
+    expect((await agent.get('/api/v1/modules')).status).toBe(200);
   });
 });

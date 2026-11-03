@@ -2,7 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { readFile, rm, stat } from 'node:fs/promises';
 import nodemailer from 'nodemailer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { sendVerificationEmail } from '../src/email.js';
+import {
+  sendVerificationEmail,
+  verificationMailFailure,
+} from '../src/email.js';
 
 const userId = `mailer-${randomUUID()}`;
 const mail = {
@@ -112,5 +115,57 @@ describe('verification email delivery', () => {
     sendMail.mockRejectedValue(new Error('SMTP failed'));
     await expect(sendVerificationEmail(mail)).rejects.toThrow('SMTP failed');
     await expect(stat(file)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+  it('retries a transient connection failure once, using the same code', async () => {
+    vi.stubEnv('EMAIL_DELIVERY', 'smtp');
+    vi.stubEnv('SMTP_HOST', 'smtp.example.com');
+    vi.stubEnv('SMTP_FROM', 'verify@example.com');
+    sendMail.mockRejectedValueOnce(
+      Object.assign(new Error('Connection timed out'), {
+        code: 'ETIMEDOUT',
+        command: 'CONN',
+      }),
+    );
+    expect(await sendVerificationEmail({ ...mail, code: '123456' })).toEqual({
+      delivery: 'smtp',
+    });
+    expect(sendMail).toHaveBeenCalledTimes(2);
+    expect(sendMail.mock.calls[0]).toEqual(sendMail.mock.calls[1]);
+  });
+  it.each([
+    ['EAUTH', 'AUTH', 1],
+    ['ETIMEDOUT', 'DATA', 1],
+    ['ETIMEDOUT', 'CONN', 2],
+  ])('limits retries for %s during %s', async (code, command, calls) => {
+    vi.stubEnv('EMAIL_DELIVERY', 'smtp');
+    vi.stubEnv('SMTP_HOST', 'smtp.example.com');
+    vi.stubEnv('SMTP_FROM', 'verify@example.com');
+    sendMail.mockRejectedValue(
+      Object.assign(new Error('Failed'), { code, command }),
+    );
+    await expect(sendVerificationEmail(mail)).rejects.toThrow('Failed');
+    expect(sendMail).toHaveBeenCalledTimes(calls);
+  });
+  it('reports only SMTP failure metadata without credentials, address or OTP', () => {
+    expect(
+      verificationMailFailure({
+        code: 'EAUTH',
+        command: 'AUTH',
+        responseCode: 535,
+        message: 'secret password and student@example.com code 123456',
+        response: 'private server response',
+      }),
+    ).toEqual({
+      code: 'VERIFICATION_DELIVERY_FAILED',
+      smtpCode: 'EAUTH',
+      smtpPhase: 'AUTH',
+      smtpStatus: 535,
+    });
+    expect(
+      verificationMailFailure({
+        code: 'private@example.com',
+        command: 'AUTH secret',
+      }),
+    ).toMatchObject({ smtpCode: 'UNKNOWN', smtpPhase: 'UNKNOWN' });
   });
 });
