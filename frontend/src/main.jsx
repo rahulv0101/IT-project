@@ -856,7 +856,7 @@ export function App() {
 }
 
 // ── Shared request-state helpers ───────────────────────────────────────────
-function useData(path) {
+function useData(path, refreshKey = 0) {
   const [state, setState] = useState({
     loading: true,
     error: '',
@@ -889,7 +889,7 @@ function useData(path) {
     return () => {
       live = false;
     };
-  }, [path]);
+  }, [path, refreshKey]);
   return state.path === path
     ? state
     : { loading: Boolean(path), error: '', data: [] };
@@ -2069,8 +2069,15 @@ export function Modules({ user }) {
 }
 // ── Resources: secure files and lecturer AI-generation controls ────────────
 export function Resources({ user }) {
+  const [refreshResources, setRefreshResources] = useState(0);
+  const [targetYear, setTargetYear] = useState('1');
+  const [uploading, setUploading] = useState(false);
+  const [uploadMessage, setUploadMessage] = useState('');
   const modules = useData('/me/modules?page=1&pageSize=50&sort=code');
-  const tiles = useData('/resources/modules?page=1&pageSize=50&sort=code');
+  const tiles = useData(
+    '/resources/modules?page=1&pageSize=50&sort=code',
+    refreshResources,
+  );
   const [moduleId, setModuleId] = useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -2078,13 +2085,28 @@ export function Resources({ user }) {
     moduleId
       ? `/modules/${moduleId}/resources?page=${page}&pageSize=20&search=${encodeURIComponent(search)}`
       : '/modules',
+    refreshResources,
   );
+  useEffect(() => {
+    const selectedModule = modules.data.find(
+      (module) => module.module_id === moduleId,
+    );
+    setTargetYear(String(selectedModule?.year || 1));
+  }, [moduleId]);
   const [title, setTitle] = useState('');
   const [error, setError] = useState('');
   const upload = async (event) => {
     event.preventDefault();
+    if (uploading) return;
     setError('');
-    const file = event.target.file.files[0];
+    setUploadMessage('');
+    const uploadForm = event.currentTarget;
+    const fileInput = uploadForm.querySelector('input[type=file]');
+    const file = fileInput.files[0];
+    if (!file) {
+      setError('Please choose a file.');
+      return;
+    }
     const maxUploadBytes = Number(
       import.meta.env.VITE_UPLOAD_MAX_BYTES || 20 * 1024 * 1024,
     );
@@ -2096,19 +2118,30 @@ export function Resources({ user }) {
     }
     const form = new FormData();
     form.append('title', title);
+    form.append('targetYear', targetYear);
     form.append('file', file);
+    setUploading(true);
     try {
-      await appFetch(`/api/v1/modules/${moduleId}/resources`, {
+      const response = await appFetch(`/api/v1/modules/${moduleId}/resources`, {
         method: 'POST',
         credentials: 'include',
         body: form,
-      }).then(async (response) => {
-        if (!response.ok)
-          throw new Error((await response.json()).error.message);
       });
+      const body = await response.json();
+      if (!response.ok)
+        throw new Error(
+          body.error?.message || 'The document could not be uploaded.',
+        );
       setTitle('');
+      fileInput.value = '';
+      setUploadMessage(
+        `Document uploaded for Year ${body.resource.target_year} students in this module.`,
+      );
+      setRefreshResources((value) => value + 1);
     } catch (reason) {
       setError(reason.message);
+    } finally {
+      setUploading(false);
     }
   };
   return (
@@ -2208,7 +2241,7 @@ export function Resources({ user }) {
       </article>
       {user.role === 'lecturer' && (
         /* Lecturer upload form; students receive authorized download links only. */
-        <form className="card" onSubmit={upload}>
+        <form className="card" onSubmit={upload} aria-label="Upload resource">
           <h2>Upload resource</h2>
           <label>
             Module
@@ -2226,6 +2259,23 @@ export function Resources({ user }) {
             </select>
           </label>
           <label>
+            Student year
+            <select
+              value={targetYear}
+              onChange={(event) => setTargetYear(event.target.value)}
+              required
+            >
+              {[1, 2, 3].map((year) => (
+                <option key={year} value={year}>
+                  Year {year}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="muted">
+            Only enrolled students in this year can see and open this document.
+          </p>
+          <label>
             Title
             <input
               value={title}
@@ -2242,7 +2292,10 @@ export function Resources({ user }) {
               required
             />
           </label>
-          <button className="primary">Upload</button>
+          <button className="primary" disabled={uploading}>
+            {uploading ? 'Uploading…' : 'Upload'}
+          </button>
+          {uploadMessage && <p role="status">{uploadMessage}</p>}
           {error && <p className="field-error">{error}</p>}
         </form>
       )}
@@ -2395,7 +2448,10 @@ export function ResourceRow({ resource, lecturer }) {
     return (
       <div className="list-row">
         <span>{resource.title}</span>
-        <small>{resource.resource_type}</small>
+        <small>
+          {resource.resource_type}
+          {resource.target_year ? ` · Year ${resource.target_year}` : ''}
+        </small>
         <a
           className="secondary resource-open-link"
           href={`/api/v1/resources/${resource.resource_id}/file`}
@@ -2411,7 +2467,10 @@ export function ResourceRow({ resource, lecturer }) {
       <div className="list-row">
         <span>
           <b>{resource.title}</b>
-          <small>{resource.resource_type}</small>
+          <small>
+            {resource.resource_type}
+            {resource.target_year ? ` · Year ${resource.target_year}` : ''}
+          </small>
         </span>
         <a
           className="secondary resource-open-link"

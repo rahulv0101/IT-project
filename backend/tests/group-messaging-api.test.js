@@ -201,4 +201,65 @@ describe('study group messaging', () => {
     const after = await pool.query('SELECT count(*)::int n FROM quiz_attempts');
     expect(after.rows[0].n).toBe(before.rows[0].n);
   });
+  it('does not let a mixed-year group reveal or download restricted resource attachments', async () => {
+    const originalFixture = f;
+    f = await sessionFixture(pool);
+    await pool.query(
+      'UPDATE resources SET target_year=1 WHERE resource_id=$1',
+      [f.resourceId],
+    );
+    await pool.query('UPDATE users SET student_year=2 WHERE user_id=$1', [
+      f.member.id,
+    ]);
+    try {
+      const message = await call('leader', 'post', `${base()}/messages`, {
+        body: 'Revision material for the selected year',
+      });
+      expect(message.status).toBe(201);
+      const attached = await call(
+        'leader',
+        'post',
+        `${base()}/messages/${message.body.message_id}/attachments`,
+        { resourceId: f.resourceId },
+      );
+      expect(attached.status).toBe(201);
+      const allowed = await call('leader', 'get', `${base()}/messages`);
+      expect(
+        allowed.body.data.find(
+          (row) => row.message_id === message.body.message_id,
+        ).attachments,
+      ).toHaveLength(1);
+      const hidden = await call('member', 'get', `${base()}/messages`);
+      expect(
+        hidden.body.data.find(
+          (row) => row.message_id === message.body.message_id,
+        ).attachments,
+      ).toEqual([]);
+      const url = `${base()}/attachments/${attached.body.attachment_id}`;
+      expect((await call('leader', 'get', url)).status).toBe(200);
+      expect((await call('member', 'get', url)).status).toBe(404);
+      const own = await call('member', 'post', `${base()}/messages`, {
+        body: 'Try linking a restricted resource',
+      });
+      expect(
+        (
+          await call(
+            'member',
+            'post',
+            `${base()}/messages/${own.body.message_id}/attachments`,
+            { resourceId: f.resourceId },
+          )
+        ).status,
+      ).toBe(403);
+    } finally {
+      await pool.query(
+        'UPDATE resources SET target_year=NULL WHERE resource_id=$1',
+        [f.resourceId],
+      );
+      await pool.query('UPDATE users SET student_year=1 WHERE user_id=$1', [
+        f.member.id,
+      ]);
+      f = originalFixture;
+    }
+  });
 });

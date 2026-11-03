@@ -45,6 +45,7 @@ import {
   recordProfanityViolation,
   isProfanityCooldownActive,
 } from './profanity/rate-limit.js';
+import { resourceYearScope } from './resource-visibility.js';
 import { createAiHealthProbe } from './ai-health.js';
 import { getGameAvailability } from './games/availability.js';
 import { validateScenarioConfig } from './labs/scenario.js';
@@ -1739,7 +1740,7 @@ app.get('/api/v1/me/modules', requireAuth, async (req, res, next) => {
     const visibleResource =
       req.user.role === 'lecturer'
         ? ''
-        : ' AND (r.group_id IS NULL OR EXISTS (SELECT 1 FROM group_members rgm WHERE rgm.group_id=r.group_id AND rgm.student_id=$1))';
+        : ` AND (r.group_id IS NULL OR EXISTS (SELECT 1 FROM group_members rgm WHERE rgm.group_id=r.group_id AND rgm.student_id=$1)) AND ${resourceYearScope('r', '$1')}`;
     const filter = query.search
       ? ` AND (m.module_code ILIKE $2 OR m.module_name ILIKE $2)`
       : '';
@@ -1827,7 +1828,7 @@ app.get('/api/v1/resources/modules', requireAuth, async (req, res, next) => {
     const visibleResource =
       req.user.role === 'lecturer'
         ? ''
-        : ' AND (r.group_id IS NULL OR EXISTS (SELECT 1 FROM group_members rgm WHERE rgm.group_id=r.group_id AND rgm.student_id=$1))';
+        : ` AND (r.group_id IS NULL OR EXISTS (SELECT 1 FROM group_members rgm WHERE rgm.group_id=r.group_id AND rgm.student_id=$1)) AND ${resourceYearScope('r', '$1')}`;
     const result = await pool.query(
       `SELECT m.module_id,m.module_code,m.module_name,count(r.resource_id)::int AS resource_count,
               max(r.created_date) AS last_updated
@@ -2096,6 +2097,10 @@ app.get(
             requestId(req),
           );
       }
+      const yearScope =
+        req.user.role === 'student'
+          ? ` AND ${resourceYearScope('r', '$2')}`
+          : '';
       const search = query.search ? ' AND r.title ILIKE $3' : '';
       const baseValues = query.search
         ? [req.params.moduleId, req.user.userId, `%${query.search}%`]
@@ -2104,14 +2109,14 @@ app.get(
         `SELECT count(DISTINCT r.resource_id)::int AS total
            FROM resources r LEFT JOIN group_members gm ON gm.group_id=r.group_id AND gm.student_id=$2
           WHERE r.module_id=$1
-            AND (r.group_id IS NULL OR gm.student_id IS NOT NULL OR EXISTS (SELECT 1 FROM modules m WHERE m.module_id=r.module_id AND m.lecturer_id=$2))${search}`,
+            AND (r.group_id IS NULL OR gm.student_id IS NOT NULL OR EXISTS (SELECT 1 FROM modules m WHERE m.module_id=r.module_id AND m.lecturer_id=$2))${yearScope}${search}`,
         baseValues,
       );
       const result = await pool.query(
-        `SELECT DISTINCT r.resource_id,r.uploaded_by,r.module_id,r.group_id,r.title,r.resource_type,r.file_size_bytes,r.created_date
+        `SELECT DISTINCT r.resource_id,r.uploaded_by,r.module_id,r.group_id,r.title,r.resource_type,r.file_size_bytes,r.created_date,r.target_year
            FROM resources r LEFT JOIN group_members gm ON gm.group_id=r.group_id AND gm.student_id=$2
           WHERE r.module_id=$1
-            AND (r.group_id IS NULL OR gm.student_id IS NOT NULL OR EXISTS (SELECT 1 FROM modules m WHERE m.module_id=r.module_id AND m.lecturer_id=$2))${search}
+            AND (r.group_id IS NULL OR gm.student_id IS NOT NULL OR EXISTS (SELECT 1 FROM modules m WHERE m.module_id=r.module_id AND m.lecturer_id=$2))${yearScope}${search}
           ORDER BY r.created_date DESC LIMIT $${baseValues.length + 1} OFFSET $${baseValues.length + 2}`,
         [...baseValues, query.pageSize, (query.page - 1) * query.pageSize],
       );
@@ -2147,6 +2152,7 @@ app.get(
               (m.lecturer_id=$2 AND $3='lecturer')
               OR (
                 $3='student'
+                AND ${resourceYearScope('r', '$2')}
                 AND EXISTS (SELECT 1 FROM enrollments e WHERE e.module_id=r.module_id AND e.student_id=$2)
                 AND (r.group_id IS NULL OR EXISTS (
                   SELECT 1 FROM group_members gm WHERE gm.group_id=r.group_id AND gm.student_id=$2
@@ -2235,23 +2241,30 @@ app.post(
           requestId(req),
         );
       }
-      const title = String(req.body.title || '').trim();
-      if (!title || title.length > 200) {
+      const data = parse(
+        z
+          .object({
+            title: z.string().trim().min(1).max(200),
+            targetYear: z.coerce.number().int().min(1).max(3).optional(),
+            groupId: z.string().uuid().optional(),
+          })
+          .strict(),
+        req.body,
+        req,
+        res,
+        422,
+      );
+      if (!data) {
         await unlink(req.file.path).catch(() => {});
-        return error(
-          res,
-          422,
-          'VALIDATION_ERROR',
-          'Resource title must be between 1 and 200 characters.',
-          requestId(req),
-        );
+        return;
       }
+      const title = data.title;
       if (!visibleText('resourceTitle', req, res, title)) {
         await unlink(req.file.path).catch(() => {});
         return;
       }
       const owner = await pool.query(
-        'SELECT 1 FROM modules WHERE module_id=$1 AND lecturer_id=$2',
+        'SELECT year FROM modules WHERE module_id=$1 AND lecturer_id=$2',
         [req.params.moduleId, req.user.userId],
       );
       if (!owner.rowCount) {
@@ -2264,10 +2277,29 @@ app.post(
           requestId(req),
         );
       }
-      const groupId = req.body.groupId || null;
+      const groupId = data.groupId || null;
+      if (
+        groupId &&
+        !(
+          await pool.query(
+            'SELECT 1 FROM study_groups WHERE group_id=$1 AND module_id=$2',
+            [groupId, req.params.moduleId],
+          )
+        ).rowCount
+      ) {
+        await unlink(req.file.path).catch(() => {});
+        return error(
+          res,
+          422,
+          'VALIDATION_ERROR',
+          'Choose a group in this module.',
+          requestId(req),
+        );
+      }
+      const targetYear = data.targetYear ?? owner.rows[0].year;
       await persistUpload(req.file.path, bytes);
       const result = await pool.query(
-        `INSERT INTO resources(uploaded_by,module_id,group_id,title,resource_type,file_location,file_size_bytes) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+        `INSERT INTO resources(uploaded_by,module_id,group_id,title,resource_type,file_location,file_size_bytes,target_year) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
         [
           req.user.userId,
           req.params.moduleId,
@@ -2276,6 +2308,7 @@ app.post(
           extension.slice(1),
           req.file.path,
           req.file.size,
+          targetYear,
         ],
       );
       res.status(201).json({ resource: result.rows[0] });

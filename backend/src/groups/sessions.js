@@ -2,6 +2,8 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { z } from 'zod';
+import { resourceYearScope } from '../resource-visibility.js';
+import { readUpload } from '../file-storage.js';
 import { containsProfanity } from '../profanity/index.js';
 
 const text = (max, required = false) =>
@@ -227,8 +229,8 @@ export function registerSessionRoutes({
       ids.length &&
       (
         await db.query(
-          'SELECT resource_id FROM resources WHERE resource_id=ANY($1::uuid[]) AND module_id=$2 AND (group_id IS NULL OR group_id=$3)',
-          [ids, g.module_id, g.group_id],
+          `SELECT resource_id FROM resources r WHERE resource_id=ANY($1::uuid[]) AND module_id=$2 AND (group_id IS NULL OR group_id=$3) AND ${resourceYearScope('r', '$4')}`,
+          [ids, g.module_id, g.group_id, req.user.userId],
         )
       ).rowCount !== ids.length
     ) {
@@ -455,8 +457,8 @@ export function registerSessionRoutes({
           ),
           resources: (
             await pool.query(
-              'SELECT resource_id,title FROM resources WHERE module_id=$1 AND (group_id IS NULL OR group_id=$2) ORDER BY title',
-              [g.module_id, g.group_id],
+              `SELECT resource_id,title FROM resources r WHERE module_id=$1 AND (group_id IS NULL OR group_id=$2) AND ($3::text<>'student' OR ${resourceYearScope('r', '$4')}) ORDER BY title`,
+              [g.module_id, g.group_id, req.user.role, req.user.userId],
             )
           ).rows,
           topics: (
@@ -487,8 +489,15 @@ export function registerSessionRoutes({
           return;
         const r = (
           await pool.query(
-            'SELECT r.file_location FROM resources r JOIN session_preparation_resources p USING(resource_id) WHERE p.session_id=$1 AND r.resource_id=$2 AND r.module_id=$3 AND (r.group_id IS NULL OR r.group_id=$4)',
-            [s.session_id, req.params.resourceId, g.module_id, g.group_id],
+            `SELECT r.file_location FROM resources r JOIN session_preparation_resources p USING(resource_id) WHERE p.session_id=$1 AND r.resource_id=$2 AND r.module_id=$3 AND (r.group_id IS NULL OR r.group_id=$4) AND ($5::text<>'student' OR ${resourceYearScope('r', '$6')})`,
+            [
+              s.session_id,
+              req.params.resourceId,
+              g.module_id,
+              g.group_id,
+              req.user.role,
+              req.user.userId,
+            ],
           )
         ).rows[0];
         if (!r)
@@ -502,10 +511,17 @@ export function registerSessionRoutes({
         const file = path.resolve(r.file_location);
         if (!file.startsWith(root + path.sep))
           return fail(req, res, 403, 'Resource is not available.');
-        res.download(file, 'preparation-resource', (e) => {
-          if (e && !res.headersSent)
-            fail(req, res, 404, 'Resource file is unavailable.');
-        });
+        try {
+          res
+            .set(
+              'Content-Disposition',
+              'attachment; filename="preparation-resource"',
+            )
+            .type(path.extname(file) || 'application/octet-stream')
+            .send(await readUpload(file));
+        } catch {
+          return fail(req, res, 404, 'Resource file is unavailable.');
+        }
       } catch (e) {
         next(e);
       }
@@ -528,8 +544,14 @@ export function registerSessionRoutes({
         if (!s) return;
         const resources = (
           await pool.query(
-            `SELECT r.resource_id,r.title FROM session_preparation_resources p JOIN resources r USING(resource_id) WHERE p.session_id=$1 AND r.module_id=$2 AND (r.group_id IS NULL OR r.group_id=$3)`,
-            [s.session_id, g.module_id, g.group_id],
+            `SELECT r.resource_id,r.title FROM session_preparation_resources p JOIN resources r USING(resource_id) WHERE p.session_id=$1 AND r.module_id=$2 AND (r.group_id IS NULL OR r.group_id=$3) AND ($4::text<>'student' OR ${resourceYearScope('r', '$5')})`,
+            [
+              s.session_id,
+              g.module_id,
+              g.group_id,
+              req.user.role,
+              req.user.userId,
+            ],
           )
         ).rows;
         const counts = (

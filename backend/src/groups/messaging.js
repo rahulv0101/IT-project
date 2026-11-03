@@ -4,6 +4,7 @@ import path from 'node:path';
 import { readFile, unlink } from 'node:fs/promises';
 import multer from 'multer';
 import { persistUpload, readUpload, removeUpload } from '../file-storage.js';
+import { resourceYearScope } from '../resource-visibility.js';
 import { z } from 'zod';
 import { containsProfanity } from '../profanity/index.js';
 
@@ -136,7 +137,8 @@ export function registerMessagingRoutes({
     }
     return g;
   }
-  const selectSql = `SELECT m.*,u.full_name AS author_name,COALESCE((SELECT json_agg(json_build_object('attachment_id',a.attachment_id,'resource_id',a.resource_id,'name',COALESCE(a.original_name,r.title),'type',a.mime_type,'size',a.size_bytes) ORDER BY a.created_at) FROM group_message_attachments a LEFT JOIN resources r ON r.resource_id=a.resource_id WHERE a.message_id=m.message_id),'[]'::json) AS attachments FROM group_messages m JOIN users u ON u.user_id=m.author_id`;
+  const selectSql = (viewerParameter) =>
+    `SELECT m.*,u.full_name AS author_name,COALESCE((SELECT json_agg(json_build_object('attachment_id',a.attachment_id,'resource_id',a.resource_id,'name',COALESCE(a.original_name,r.title),'type',a.mime_type,'size',a.size_bytes) ORDER BY a.created_at) FROM group_message_attachments a LEFT JOIN resources r ON r.resource_id=a.resource_id WHERE a.message_id=m.message_id ${viewerParameter ? `AND (a.resource_id IS NULL OR ${resourceYearScope('r', viewerParameter)})` : ''}),'[]'::json) AS attachments FROM group_messages m JOIN users u ON u.user_id=m.author_id`;
 
   app.get(
     '/api/v1/groups/:groupId/messages',
@@ -168,13 +170,16 @@ export function registerMessagingRoutes({
             'Refresh the group chat and try again.',
             requestId(req),
           );
+        const viewerParameter = req.user.role === 'student' ? '$4' : null;
+        if (viewerParameter) params.push(req.user.userId);
+        const cursorParameter = `$${params.length + 1}`;
         const after = q.after
-          ? `AND (m.created_at,m.message_id)>(SELECT created_at,message_id FROM group_messages WHERE message_id=$4 AND group_id=$1)`
+          ? `AND (m.created_at,m.message_id)>(SELECT created_at,message_id FROM group_messages WHERE message_id=${cursorParameter} AND group_id=$1)`
           : '';
         if (q.after) params.push(q.after);
         const rows = (
           await db.query(
-            `${selectSql} WHERE m.group_id=$1 ${after} ORDER BY m.pinned DESC,m.created_at DESC,m.message_id DESC LIMIT $2 OFFSET $3`,
+            `${selectSql(viewerParameter)} WHERE m.group_id=$1 ${after} ORDER BY m.pinned DESC,m.created_at DESC,m.message_id DESC LIMIT $2 OFFSET $3`,
             params,
           )
         ).rows;
@@ -566,7 +571,7 @@ export function registerMessagingRoutes({
             return;
           }
           const r = await pool.query(
-            `INSERT INTO group_message_attachments(message_id,resource_id) SELECT $1,$2 WHERE EXISTS(SELECT 1 FROM group_messages WHERE message_id=$1 AND group_id=$3 AND author_id=$4) AND EXISTS(SELECT 1 FROM resources r WHERE r.resource_id=$2 AND r.module_id=$5 AND (r.group_id IS NULL OR r.group_id=$3)) RETURNING attachment_id`,
+            `INSERT INTO group_message_attachments(message_id,resource_id) SELECT $1,$2 WHERE EXISTS(SELECT 1 FROM group_messages WHERE message_id=$1 AND group_id=$3 AND author_id=$4) AND EXISTS(SELECT 1 FROM resources r WHERE r.resource_id=$2 AND r.module_id=$5 AND (r.group_id IS NULL OR r.group_id=$3) AND ${resourceYearScope('r', '$4')}) RETURNING attachment_id`,
             [
               req.params.messageId,
               req.body.resourceId,
@@ -703,8 +708,13 @@ export function registerMessagingRoutes({
         }
         const r = (
           await pool.query(
-            `SELECT a.*,r.title AS resource_name,r.file_location AS resource_file FROM group_message_attachments a JOIN group_messages m USING(message_id) LEFT JOIN resources r USING(resource_id) WHERE a.attachment_id=$1 AND m.group_id=$2`,
-            [req.params.attachmentId, g.group_id],
+            `SELECT a.*,r.title AS resource_name,r.file_location AS resource_file FROM group_message_attachments a JOIN group_messages m USING(message_id) LEFT JOIN resources r USING(resource_id) WHERE a.attachment_id=$1 AND m.group_id=$2 AND ($3::text<>'student' OR a.resource_id IS NULL OR ${resourceYearScope('r', '$4')})`,
+            [
+              req.params.attachmentId,
+              g.group_id,
+              req.user.role,
+              req.user.userId,
+            ],
           )
         ).rows[0];
         if (!r) {

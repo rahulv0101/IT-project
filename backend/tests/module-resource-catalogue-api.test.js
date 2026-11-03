@@ -363,4 +363,132 @@ describe('student module and resource catalogue API', () => {
       vi.clearAllMocks();
     }
   });
+  it('limits new uploads to the selected student year in lists, counts, search and direct file access', async () => {
+    const ids = [];
+    try {
+      for (const year of [1, 2, 3]) {
+        const uploaded = await lecturerAgent
+          .post(`/api/v1/modules/${ownModule.module_id}/resources`)
+          .field('title', `Selected Year ${year}`)
+          .field('targetYear', String(year))
+          .attach(
+            'file',
+            Buffer.from('%PDF-1.4\nYear material\n%%EOF'),
+            'year.pdf',
+          );
+        expect(uploaded.status, JSON.stringify(uploaded.body)).toBe(201);
+        expect(uploaded.body.resource.target_year).toBe(year);
+        ids.push(uploaded.body.resource.resource_id);
+      }
+      for (const year of [1, 2, 3]) {
+        await pool.query('UPDATE users SET student_year=$2 WHERE user_id=$1', [
+          firstYear,
+          year,
+        ]);
+        const listed = await firstYearAgent.get(
+          `/api/v1/modules/${ownModule.module_id}/resources?pageSize=50`,
+        );
+        expect(listed.status).toBe(200);
+        expect(
+          listed.body.data
+            .filter((row) => ids.includes(row.resource_id))
+            .map((row) => row.target_year),
+        ).toEqual([year]);
+        expect(
+          listed.body.data.some((row) => row.resource_id === resourceId),
+        ).toBe(true);
+        for (let i = 0; i < ids.length; i++)
+          expect(
+            (await firstYearAgent.get(`/api/v1/resources/${ids[i]}/file`))
+              .status,
+          ).toBe(i + 1 === year ? 200 : 404);
+        const tiles = await firstYearAgent.get('/api/v1/resources/modules');
+        expect(
+          tiles.body.data.find((row) => row.module_id === ownModule.module_id)
+            .resource_count,
+        ).toBe(listed.body.data.length);
+        const modules = await firstYearAgent.get('/api/v1/me/modules');
+        expect(
+          modules.body.data.find((row) => row.module_id === ownModule.module_id)
+            .new_resources_count,
+        ).toBe(listed.body.data.length);
+        const hidden = year === 1 ? 2 : 1;
+        expect(
+          (
+            await firstYearAgent.get(
+              `/api/v1/modules/${ownModule.module_id}/resources?search=Selected%20Year%20${hidden}`,
+            )
+          ).body.pagination.total,
+        ).toBe(0);
+      }
+      const lecturerList = await lecturerAgent.get(
+        `/api/v1/modules/${ownModule.module_id}/resources?pageSize=50`,
+      );
+      expect(
+        lecturerList.body.data.filter((row) => ids.includes(row.resource_id)),
+      ).toHaveLength(3);
+      expect(
+        (await secondYearAgent.get(`/api/v1/resources/${ids[1]}/file`)).status,
+      ).toBe(404);
+      expect(
+        (await otherLecturerAgent.get(`/api/v1/resources/${ids[1]}/file`))
+          .status,
+      ).toBe(404);
+    } finally {
+      await pool.query('UPDATE users SET student_year=1 WHERE user_id=$1', [
+        firstYear,
+      ]);
+      await pool.query(
+        'DELETE FROM resources WHERE resource_id=ANY($1::uuid[])',
+        [ids],
+      );
+    }
+  });
+  it('rejects invalid upload years and unknown fields; older clients default to the module year', async () => {
+    const count = (
+      await pool.query(
+        'SELECT count(*)::int n FROM resources WHERE module_id=$1',
+        [ownModule.module_id],
+      )
+    ).rows[0].n;
+    for (const year of ['0', '4', 'all', '2.5', '']) {
+      const result = await lecturerAgent
+        .post(`/api/v1/modules/${ownModule.module_id}/resources`)
+        .field('title', 'Year validation')
+        .field('targetYear', year)
+        .attach(
+          'file',
+          Buffer.from('%PDF-1.4\nValidation\n%%EOF'),
+          'validation.pdf',
+        );
+      expect(result.status).toBe(422);
+    }
+    const unknown = await lecturerAgent
+      .post(`/api/v1/modules/${ownModule.module_id}/resources`)
+      .field('title', 'Year validation')
+      .field('unexpected', 'value')
+      .attach(
+        'file',
+        Buffer.from('%PDF-1.4\nValidation\n%%EOF'),
+        'validation.pdf',
+      );
+    expect(unknown.status).toBe(422);
+    expect(
+      (
+        await pool.query(
+          'SELECT count(*)::int n FROM resources WHERE module_id=$1',
+          [ownModule.module_id],
+        )
+      ).rows[0].n,
+    ).toBe(count);
+    const fallback = await lecturerAgent
+      .post(`/api/v1/modules/${ownModule.module_id}/resources`)
+      .field('title', 'Module year default')
+      .attach('file', Buffer.from('%PDF-1.4\nDefault\n%%EOF'), 'default.pdf');
+    expect(fallback.status).toBe(201);
+    expect(fallback.body.resource.target_year).toBe(1);
+    await pool.query('DELETE FROM resources WHERE resource_id=$1', [
+      fallback.body.resource.resource_id,
+    ]);
+  });
 });

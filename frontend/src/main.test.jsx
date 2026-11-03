@@ -2830,3 +2830,78 @@ it('profile password controls reveal each password and keep validation beside it
   });
   vi.unstubAllGlobals();
 });
+
+it('uploads the selected student year and refreshes the resource list with its saved audience', async () => {
+  cleanup();
+  let uploaded = false;
+  const module = {
+    module_id: 'year-module',
+    module_code: 'YR301',
+    module_name: 'Year module',
+    year: 3,
+  };
+  const resource = {
+    resource_id: 'year-resource',
+    title: 'Only year two notes',
+    resource_type: 'txt',
+    target_year: 2,
+  };
+  const fetchMock = vi.fn(async (url, options = {}) => {
+    if (options.method === 'POST') {
+      uploaded = true;
+      return { ...response({ resource }), status: 201 };
+    }
+    if (url.includes('/ai-status'))
+      return response({ configured: true, reachable: true });
+    if (url.includes('/resources/modules'))
+      return response({
+        data: [{ ...module, resource_count: uploaded ? 1 : 0 }],
+      });
+    if (url.includes('/modules/year-module/resources'))
+      return response({ data: uploaded ? [resource] : [] });
+    return response({ data: [module] });
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  render(<Resources user={{ role: 'lecturer' }} />);
+  await waitFor(() =>
+    expect(
+      screen.getAllByRole('option', { name: 'Year module' }).length,
+    ).toBeGreaterThan(0),
+  );
+  fireEvent.change(
+    screen.getByRole('combobox', { name: 'Module', exact: true }),
+    { target: { value: module.module_id } },
+  );
+  await waitFor(() =>
+    expect(
+      screen.getByRole('combobox', { name: 'Student year', exact: true }).value,
+    ).toBe('3'),
+  );
+  fireEvent.change(
+    screen.getByRole('combobox', { name: 'Student year', exact: true }),
+    { target: { value: '2' } },
+  );
+  fireEvent.change(screen.getByLabelText('Title', { exact: true }), {
+    target: { value: resource.title },
+  });
+  fireEvent.change(screen.getByLabelText('File', { exact: true }), {
+    target: {
+      files: [
+        new File(['Year two material'], 'notes.txt', { type: 'text/plain' }),
+      ],
+    },
+  });
+  fireEvent.submit(screen.getByRole('form', { name: 'Upload resource' }));
+  await screen.findByText(
+    'Document uploaded for Year 2 students in this module.',
+  );
+  const sent = fetchMock.mock.calls.find(
+    ([, options]) => options?.method === 'POST',
+  )[1].body;
+  expect(sent.get('targetYear')).toBe('2');
+  expect(sent.get('title')).toBe(resource.title);
+  expect(sent.get('file').name).toBe('notes.txt');
+  expect(await screen.findByText('Only year two notes')).toBeTruthy();
+  expect(screen.getByText('txt · Year 2')).toBeTruthy();
+  vi.unstubAllGlobals();
+});

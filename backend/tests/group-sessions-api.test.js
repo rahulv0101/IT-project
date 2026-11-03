@@ -263,4 +263,74 @@ describe('study session invariants', () => {
       ).rowCount,
     ).toBe(0);
   });
+  it('enforces resource year restrictions in preparation choices, session details and downloads', async () => {
+    const originalFixture = f;
+    f = await sessionFixture(pool);
+    await pool.query(
+      'UPDATE resources SET target_year=1 WHERE resource_id=$1',
+      [f.resourceId],
+    );
+    await pool.query('UPDATE users SET student_year=2 WHERE user_id=$1', [
+      f.member.id,
+    ]);
+    try {
+      const made = await create({ resourceIds: [f.resourceId] });
+      const id = made.sessions[0].session_id;
+      expect(
+        (
+          await call('leader', 'get', `${f.base}/preparation-options`)
+        ).body.resources.some((r) => r.resource_id === f.resourceId),
+      ).toBe(true);
+      expect(
+        (
+          await call('member', 'get', `${f.base}/preparation-options`)
+        ).body.resources.some((r) => r.resource_id === f.resourceId),
+      ).toBe(false);
+      expect(
+        (await call('member', 'get', `${f.base}/${id}`)).body.resources,
+      ).toEqual([]);
+      expect(
+        (
+          await call(
+            'leader',
+            'get',
+            `${f.base}/${id}/resources/${f.resourceId}`,
+          )
+        ).status,
+      ).toBe(200);
+      expect(
+        (
+          await call(
+            'member',
+            'get',
+            `${f.base}/${id}/resources/${f.resourceId}`,
+          )
+        ).status,
+      ).toBe(403);
+      expect(
+        (await call('lecturer', 'get', `${f.base}/${id}`)).body.resources,
+      ).toHaveLength(1);
+      await pool.query('UPDATE users SET student_year=2 WHERE user_id=$1', [
+        f.coLeader.id,
+      ]);
+      expect(
+        (
+          await call('coLeader', 'post', f.base, {
+            ...validSession(),
+            resourceIds: [f.resourceId],
+          })
+        ).status,
+      ).toBe(422);
+    } finally {
+      await pool.query(
+        'UPDATE resources SET target_year=NULL WHERE resource_id=$1',
+        [f.resourceId],
+      );
+      await pool.query(
+        'UPDATE users SET student_year=1 WHERE user_id=ANY($1::uuid[])',
+        [[f.member.id, f.coLeader.id]],
+      );
+      f = originalFixture;
+    }
+  });
 });
