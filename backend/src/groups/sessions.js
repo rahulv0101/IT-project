@@ -25,10 +25,16 @@ export const sessionSchema = z
     topicRef: z.string().uuid().nullable().default(null),
     description: text(2000).default(''),
     preparationNotes: text(2000).default(''),
-    startsAt: z.string().datetime({ offset: true }),
+    startsAt: z
+      .string()
+      .datetime({ offset: true })
+      .refine(
+        (value) => Date.parse(value) > Date.now(),
+        'Choose a future start time.',
+      ),
     endsAt: z.string().datetime({ offset: true }),
     mode: z.enum(['in_person', 'online']),
-    location: text(500, true),
+    location: text(500).default(''),
     resourceIds: z.array(z.string().uuid()).max(20).default([]),
     weeks: z.number().int().min(1).max(12).default(1),
   })
@@ -41,7 +47,13 @@ export const sessionSchema = z
         message: 'Sessions must last more than zero and at most eight hours.',
       });
     const looksLikeUrl = /^[a-z][a-z0-9+.-]*:/i.test(v.location);
-    if (v.mode === 'online' || looksLikeUrl) {
+    if (v.mode === 'in_person' && !v.location)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['location'],
+        message: 'Enter a room for an in-person session.',
+      });
+    if ((v.mode === 'online' && v.location) || looksLikeUrl) {
       try {
         const u = new URL(v.location);
         if (u.protocol !== 'https:' || u.username || u.password) throw Error();
@@ -146,7 +158,12 @@ export function registerSessionRoutes({
   const parse = (schema, value, req, res) => {
     const p = schema.safeParse(value);
     if (!p.success) {
-      fail(req, res, 422, 'Please check the submitted fields.');
+      fail(
+        req,
+        res,
+        422,
+        p.error.issues[0]?.message || 'Please check the submitted fields.',
+      );
       return null;
     }
     return p.data;

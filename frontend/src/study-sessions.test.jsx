@@ -88,7 +88,7 @@ it('leader creates a weekly session with accessible labelled fields', async () =
   fireEvent.change(screen.getByLabelText('Topic'), {
     target: { value: 'Databases' },
   });
-  fireEvent.change(screen.getByLabelText('Room or HTTPS meeting link'), {
+  fireEvent.change(screen.getByLabelText('Room'), {
     target: { value: 'Room A' },
   });
   fireEvent.change(screen.getByLabelText('Weekly occurrences (1–12)'), {
@@ -119,6 +119,64 @@ it('member sees details, preparation, counts and RSVP but no creation control', 
       calls.some(
         ([u, o]) =>
           u.endsWith('/rsvp') && JSON.parse(o.body).response === 'going',
+      ),
+    ).toBe(true),
+  );
+});
+it('blocks past dates and invalid durations before sending a session request', async () => {
+  render(<StudySessions groupId="group" />);
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Plan a session' }),
+  );
+  fireEvent.change(screen.getByLabelText('Starts at'), {
+    target: { value: '2000-01-01T10:00' },
+  });
+  fireEvent.change(screen.getByLabelText('Ends at'), {
+    target: { value: '2000-01-01T11:00' },
+  });
+  const form = screen
+    .getByRole('button', { name: 'Save session' })
+    .closest('form');
+  fireEvent.submit(form);
+  expect(screen.getByRole('alert').textContent).toBe(
+    'Choose a future start time.',
+  );
+  expect(calls.some(([, o]) => o.method === 'POST')).toBe(false);
+  fireEvent.change(screen.getByLabelText('Starts at'), {
+    target: { value: '2030-01-02T10:00' },
+  });
+  fireEvent.change(screen.getByLabelText('Ends at'), {
+    target: { value: '2030-01-02T09:00' },
+  });
+  fireEvent.submit(form);
+  expect(screen.getByRole('alert').textContent).toContain(
+    'at most eight hours',
+  );
+  expect(calls.some(([, o]) => o.method === 'POST')).toBe(false);
+});
+it('plans an online session without displaying or requiring a meeting link', async () => {
+  render(<StudySessions groupId="group" />);
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Plan a session' }),
+  );
+  fireEvent.change(screen.getByLabelText('Mode'), {
+    target: { value: 'online' },
+  });
+  expect(screen.queryByLabelText('Room')).toBeNull();
+  expect(screen.queryByText(/meeting link|Open HTTPS meeting/)).toBeNull();
+  fireEvent.change(screen.getByLabelText('Title'), {
+    target: { value: 'Online revision' },
+  });
+  fireEvent.change(screen.getByLabelText('Topic'), {
+    target: { value: 'Databases' },
+  });
+  fireEvent.submit(
+    screen.getByRole('button', { name: 'Save session' }).closest('form'),
+  );
+  await waitFor(() =>
+    expect(
+      calls.some(
+        ([, o]) => o.method === 'POST' && JSON.parse(o.body).location === '',
       ),
     ).toBe(true),
   );

@@ -57,6 +57,74 @@ beforeEach(async () => {
   admin = await administrator();
 });
 describe('administrator account creation and removal', () => {
+  it('allows deactivating or suspending a pending administrator without mistaking it for the last usable admin', async () => {
+    const others = (
+      await pool.query(
+        "SELECT user_id,account_status FROM users WHERE role='admin' AND user_id<>$1",
+        [admin.id],
+      )
+    ).rows;
+    await pool.query(
+      "UPDATE users SET account_status='inactive' WHERE role='admin' AND user_id<>$1",
+      [admin.id],
+    );
+    try {
+      const pending = (
+        await call(admin, 'post', '/api/v1/admin/users', body('admin'))
+      ).body.user;
+      const path = `/api/v1/admin/users/${pending.user_id}`;
+      expect(
+        (
+          await call(admin, 'delete', path, {
+            confirmationEmail: pending.email,
+            reason: 'Deactivate unverified account',
+          })
+        ).status,
+      ).toBe(204);
+      expect(
+        (
+          await call(admin, 'patch', path, {
+            action: 'activate',
+            reason: 'Restore pending account',
+          })
+        ).status,
+      ).toBe(200);
+      expect(
+        (
+          await call(admin, 'patch', path, {
+            action: 'suspend',
+            reason: 'Suspend pending account',
+          })
+        ).status,
+      ).toBe(200);
+      await call(admin, 'patch', path, {
+        action: 'activate',
+        reason: 'Restore pending account',
+      });
+      expect(
+        (
+          await call(admin, 'patch', path, {
+            action: 'deactivate',
+            reason: 'Deactivate pending account',
+          })
+        ).status,
+      ).toBe(200);
+      expect(
+        (
+          await pool.query(
+            'SELECT account_status FROM users WHERE user_id=$1',
+            [admin.id],
+          )
+        ).rows[0].account_status,
+      ).toBe('active');
+    } finally {
+      for (const user of others)
+        await pool.query(
+          'UPDATE users SET account_status=$2 WHERE user_id=$1',
+          [user.user_id, user.account_status],
+        );
+    }
+  });
   it('requires OTP before every newly created role can access account functions', async () => {
     for (const role of ['student', 'lecturer', 'admin']) {
       const data = body(role);

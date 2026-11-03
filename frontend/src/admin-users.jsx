@@ -435,6 +435,13 @@ export function AdminUsers({ currentUserId }) {
                           user.account_status === 'inactive'
                         }
                         aria-label={`Deactivate ${user.full_name}`}
+                        title={
+                          user.user_id === currentUserId
+                            ? 'You cannot deactivate your own account.'
+                            : user.account_status === 'inactive'
+                              ? 'This account is already inactive.'
+                              : undefined
+                        }
                         onClick={() => {
                           setTarget(user);
                           setConfirmation('');
@@ -496,6 +503,14 @@ export function AdminUsers({ currentUserId }) {
               placeholder={target.email}
             />
           </label>
+          <p>Type {target.email} above to confirm deactivation.</p>
+          {confirmation.trim() &&
+            confirmation.trim().toLowerCase() !==
+              target.email.toLowerCase() && (
+              <p className="field-error">
+                The email must match this account before you can deactivate it.
+              </p>
+            )}
           <label>
             Deactivation reason
             <textarea

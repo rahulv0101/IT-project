@@ -345,7 +345,7 @@ export function registerAdminRoutes({
           requestId(req),
         );
       const target = await client.query(
-        "SELECT user_id,role,account_status FROM users WHERE user_id=$1 AND account_status<>'deleted' FOR UPDATE",
+        "SELECT user_id,role,account_status,requires_email_verification,email_verified_at FROM users WHERE user_id=$1 AND account_status<>'deleted' FOR UPDATE",
         [params.userId],
       );
       if (!target.rowCount)
@@ -353,7 +353,9 @@ export function registerAdminRoutes({
       if (
         ['suspend', 'deactivate'].includes(data.action) &&
         target.rows[0].role === 'admin' &&
-        target.rows[0].account_status === 'active'
+        target.rows[0].account_status === 'active' &&
+        (!target.rows[0].requires_email_verification ||
+          target.rows[0].email_verified_at)
       ) {
         const active = await client.query(
           "SELECT count(*)::int count FROM users WHERE role='admin' AND account_status='active' AND (NOT requires_email_verification OR email_verified_at IS NOT NULL)",

@@ -2,6 +2,10 @@ import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
 test.beforeEach(async ({ page }) => {
+  await page.route(
+    /^https:\/\/(fonts\.googleapis\.com|fonts\.gstatic\.com)\//,
+    (route) => route.abort(),
+  );
   const response = await page.request.post('/api/v1/__test/reset-auth-state');
   expect(response.status()).toBe(204);
 });
@@ -44,10 +48,43 @@ test('study sessions: leader schedules, member RSVPs, calendars, notifications a
     .click();
   await page.getByLabel('Title', { exact: true }).fill(sessionTitle);
   await page.getByLabel('Topic', { exact: true }).fill('Relational databases');
+  await page.getByLabel('Room', { exact: true }).fill('Room A');
+  const start = page.getByLabel('Starts at', { exact: true });
+  const end = page.getByLabel('Ends at', { exact: true });
+  const futureStart = await start.inputValue();
+  const futureEnd = await end.inputValue();
+  await start.fill('2000-01-01T10:00');
+  await end.fill('2000-01-01T11:00');
+  expect(await start.evaluate((input) => input.validity.rangeUnderflow)).toBe(
+    true,
+  );
+  const requests = [];
+  const track = (request) => {
+    if (
+      request.method() === 'POST' &&
+      request.url().endsWith(`/groups/${group.group_id}/sessions`)
+    )
+      requests.push(request);
+  };
+  page.on('request', track);
+  await page.getByRole('button', { name: 'Save session', exact: true }).click();
+  expect(await start.evaluate((input) => input.checkValidity())).toBe(false);
+  expect(requests).toHaveLength(0);
+  page.off('request', track);
+  await start.fill(futureStart);
+  await end.fill(futureEnd);
+  await page
+    .getByRole('combobox', { name: 'Mode', exact: true })
+    .selectOption('online');
+  await expect(page.getByLabel('Room', { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/HTTPS meeting|meeting link/)).toHaveCount(0);
+  await page
+    .getByRole('combobox', { name: 'Mode', exact: true })
+    .selectOption('in_person');
   await page
     .getByLabel('Preparation notes', { exact: true })
     .fill('Read your notes');
-  await page.getByLabel('Room or HTTPS meeting link').fill('Room A');
+  await page.getByLabel('Room').fill('Room A');
   await page.getByLabel('Weekly occurrences (1–12)').fill('2');
   await axe();
   const saved = page.waitForResponse(

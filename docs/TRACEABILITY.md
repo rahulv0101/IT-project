@@ -434,3 +434,13 @@ Release verification: `66ca17f` is live. All 697 automated tests and six browser
 Validation: 83 existing profile/application/collaboration component tests passed, including all three role variants and lecturer save payload omission; lint, type checking, formatting and production build passed.
 
 Live verification: `c2177af` was pushed to Rahul's master branch and deployed to https://eduquest-dun.vercel.app (`dpl_CVPvNkUQqRedENSNajrvuEtPt4qE`). Authenticated lecturer and student profile views confirmed the language controls are absent for the lecturer and retained for the student. Live checks did not save or change either profile. Existing admin visibility is covered by the role regression.
+
+### Session date validation, meeting-link removal and account deactivation — 2026-11-03
+
+`groups/sessions.js` enforces future starts in the shared schema and reports validation messages. `study-sessions.jsx` validates before ISO conversion, adds native date bounds, shows Room only in person and removes meeting links from forms/details. Migration 036 permits link-free online sessions without changing existing rows.
+
+`admin/accounts.js` and `admin/routes.js` distinguish pending unverified admins from usable admins when protecting the last admin. `admin-users.jsx` clarifies exact email confirmation and disabled-action reasons. The owner confirmed deactivation was the intended admin action.
+
+Regressions cover past create/edit/duplicate with unchanged saved dates, online sessions without links, required in-person rooms, pending-admin DELETE/PATCH deactivation/suspension and preserved usable-admin access. Form tests cover blocked past/invalid durations and link-free online submissions. Browser sessions exercise native date validation and absent meeting-link controls alongside scheduling, RSVP, calendars, notifications and cancellation; the existing account lifecycle scenario checks deactivation/activation, suspension and session revocation with retained data.
+
+Validation: all 702 automated tests (302 unit/component, 400 API) and all six Chromium mobile/desktop and Firefox mobile browser scenarios passed with no skips. A private 48-table backup precedes migration 036. Details: `docs/SESSION_DATES_ADMIN_2026-11-03.md`.

@@ -337,11 +337,28 @@ export function StudySessions({ groupId, sessionId, onBack }) {
         <form
           onSubmit={async (e) => {
             e.preventDefault();
+            const startTime = Date.parse(form.startsAt);
+            const endTime = Date.parse(form.endsAt);
+            if (!Number.isFinite(startTime) || startTime <= Date.now()) {
+              setError('Choose a future start time.');
+              return;
+            }
+            if (
+              !Number.isFinite(endTime) ||
+              endTime <= startTime ||
+              endTime - startTime > 8 * 3600000
+            ) {
+              setError(
+                'Sessions must last more than zero and at most eight hours.',
+              );
+              return;
+            }
             const result = await act(
               editing ? `${base}/${editing}` : base,
               editing ? 'PATCH' : 'POST',
               {
                 ...form,
+                location: form.mode === 'online' ? '' : form.location,
                 startsAt: new Date(form.startsAt).toISOString(),
                 endsAt: new Date(form.endsAt).toISOString(),
               },
@@ -358,7 +375,6 @@ export function StudySessions({ groupId, sessionId, onBack }) {
             ['topic', 'Topic'],
             ['description', 'Description'],
             ['preparationNotes', 'Preparation notes'],
-            ['location', 'Room or HTTPS meeting link'],
           ].map(([key, label]) => (
             <label key={key}>
               {label}
@@ -378,6 +394,17 @@ export function StudySessions({ groupId, sessionId, onBack }) {
               />
             </label>
           ))}
+          {form.mode === 'in_person' && (
+            <label>
+              Room
+              <input
+                value={form.location}
+                required
+                maxLength={500}
+                onChange={(e) => setForm({ ...form, location: e.target.value })}
+              />
+            </label>
+          )}
           <label>
             Module topic (optional)
             <select
@@ -399,6 +426,7 @@ export function StudySessions({ groupId, sessionId, onBack }) {
             <input
               type="datetime-local"
               required
+              min={localInput(Math.ceil((Date.now() + 1) / 60000) * 60000)}
               value={form.startsAt}
               onChange={(e) => setForm({ ...form, startsAt: e.target.value })}
             />
@@ -408,6 +436,16 @@ export function StudySessions({ groupId, sessionId, onBack }) {
             <input
               type="datetime-local"
               required
+              min={
+                form.startsAt
+                  ? localInput(Date.parse(form.startsAt) + 60000)
+                  : localInput(Date.now() + 60000)
+              }
+              max={
+                form.startsAt
+                  ? localInput(Date.parse(form.startsAt) + 8 * 3600000)
+                  : undefined
+              }
               value={form.endsAt}
               onChange={(e) => setForm({ ...form, endsAt: e.target.value })}
             />
@@ -590,18 +628,9 @@ export function StudySessions({ groupId, sessionId, onBack }) {
           </p>
           <p>Leader: {detail.leaders.map((l) => l.full_name).join(', ')}</p>
           <p>
-            Location:{' '}
-            {detail.session.mode === 'online' ? (
-              <a
-                href={detail.session.location}
-                rel="noreferrer"
-                target="_blank"
-              >
-                Open HTTPS meeting
-              </a>
-            ) : (
-              detail.session.location
-            )}
+            {detail.session.mode === 'online'
+              ? 'Online session'
+              : `Room: ${detail.session.location}`}
           </p>
           {detail.resources.map((r) => (
             <p key={r.resource_id}>

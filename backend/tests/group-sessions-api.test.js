@@ -62,6 +62,44 @@ describe('study session invariants', () => {
         .status,
     ).toBe(403);
   });
+  it('rejects past dates on create, edit and duplicate without changing saved sessions', async () => {
+    const existing = (await create()).sessions[0];
+    const startsAt = new Date(Date.now() - 3600000).toISOString();
+    const endsAt = new Date(Date.now() - 1800000).toISOString();
+    for (const [method, path, body] of [
+      ['post', f.base, { ...validSession(), startsAt, endsAt, weeks: 2 }],
+      [
+        'patch',
+        `${f.base}/${existing.session_id}`,
+        { ...validSession(), startsAt, endsAt },
+      ],
+      [
+        'post',
+        `${f.base}/${existing.session_id}/duplicate`,
+        { startsAt, endsAt },
+      ],
+    ]) {
+      const result = await call('leader', method, path, body);
+      expect(result.status).toBe(422);
+      expect(result.body.error.message).toBe('Choose a future start time.');
+    }
+    expect(
+      (await call('leader', 'get', `${f.base}/${existing.session_id}`)).body
+        .session.starts_at,
+    ).toBe(existing.starts_at);
+  });
+  it('allows an online session without a meeting link while still requiring an in-person room', async () => {
+    const online = await create({ mode: 'online', location: '' });
+    expect(online.sessions[0].location).toBe('');
+    expect(
+      (
+        await call('leader', 'post', f.base, {
+          ...validSession(),
+          location: '',
+        })
+      ).status,
+    ).toBe(422);
+  });
   it('shows RSVP counts to members and names only to leaders', async () => {
     const s = (await create()).sessions[0];
     expect(

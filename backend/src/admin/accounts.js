@@ -234,7 +234,7 @@ export function registerAccountManagement({
         }
         const target = (
           await client.query(
-            "SELECT user_id,email,role,account_status FROM users WHERE user_id=$1 AND account_status<>'deleted' FOR UPDATE",
+            "SELECT user_id,email,role,account_status,requires_email_verification,email_verified_at FROM users WHERE user_id=$1 AND account_status<>'deleted' FOR UPDATE",
             [userId],
           )
         ).rows[0];
@@ -261,6 +261,7 @@ export function registerAccountManagement({
         if (
           target.role === 'admin' &&
           target.account_status === 'active' &&
+          (!target.requires_email_verification || target.email_verified_at) &&
           (
             await client.query(
               "SELECT count(*)::int n FROM users WHERE role='admin' AND account_status='active' AND (NOT requires_email_verification OR email_verified_at IS NOT NULL)",
