@@ -21,3 +21,11 @@ The validator uses the package's [browser build](https://html-validate.org/dev/r
 - Lint, type checking, formatting and production build passed. No database migration is required.
 
 Live deployment verification is appended after release.
+
+## Live release verification
+
+- Commit `66ca17f` was pushed to Rahul's master branch and deployed successfully to https://eduquest-dun.vercel.app (deployment `dpl_2BYmKCNi9Nbir2rfbbAzajyFaDs7`). No schema migration was needed.
+- Using an existing verified student in an isolated browser session at 1280×500, Quizzes, Practice Labs, Profile and Log out remained inside the sidebar after scrolling. No existing password or account status was changed.
+- In the real HTML essentials lab, the screenshot source produced its HTML line/column error and zero passed checks. Invalid JavaScript syntax produced a visible console error and zero passed checks. Corrected HTML and JavaScript passed both checks and cleared the error alert.
+- Live validation did not save a draft or write academic data. The browser blocked all unexpected API mutations; only its own sign-in/logout were permitted. Existing saved work was left unchanged.
+- The canonical deployment bundle, validator chunk in the PWA precache and backend health passed. TLS checks remained enabled while routing this workstation's requests through an alternate reachable Vercel edge.
