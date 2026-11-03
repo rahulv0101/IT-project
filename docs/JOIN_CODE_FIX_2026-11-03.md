@@ -8,4 +8,6 @@ Validation:
 
 - 646 unit/component/API tests passed (264 unit/component and 382 API), with no skipped tests.
 - Lint, type checking, formatting and production build passed.
-- Browser regression checks cover reload, navigation, fresh sign-in, clipboard copying, student presentation, accessibility and mobile overflow.
+- All three browser regressions passed: Chromium at 390px and 1280px, and Firefox at 390px. They cover reload, navigation, fresh sign-in, clipboard copying, student presentation, accessibility and mobile overflow.
+
+Production deployment `26d97f8` is live at https://eduquest-dun.vercel.app (Vercel deployment `eduquest-cd552w5tg-rahul-521d.vercel.app`). The existing lecturer account was checked against its saved modules: every returned code matched its displayed field; copying, reload, fresh password sign-in and 390px containment passed. No module codes or database records were changed.
