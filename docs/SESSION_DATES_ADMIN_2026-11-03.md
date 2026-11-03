@@ -15,3 +15,11 @@ Validation results and live release evidence are appended after the checks compl
 - API regressions verify past create/edit/duplicate requests fail without changing saved dates; online sessions need no link; in-person rooms remain required; a pending administrator can be deactivated/suspended while the usable administrator stays active.
 - Initial new online-session coverage exposed the existing database constraint requiring nonempty locations for all modes; migration 036 resolves that invariant instead of substituting a fake link.
 - A private, consistent backup of all 48 production tables was taken before migration. Tests and browser validation used isolated fixtures.
+
+## Release verification
+
+- Source `fe56421` was pushed to Rahul's master branch using Rahul's saved GitHub credentials and deployed to https://eduquest-dun.vercel.app (`dpl_HrbLDxxBPrnaJMhzdLNghp4DJDaP`). Lint, type checking, formatting and production build passed.
+- Migration 036 committed after the private backup; the existing production session row was identical before and after the constraint change. No user/account records were changed by the migration.
+- An existing verified student group leader opened the actual mobile session form. A past start failed native range validation; online mode had no room/meeting-link control. The form was closed without saving.
+- An authenticated past-dated create request returned 422 with “Choose a future start time.” No session was created, edited or cancelled during live verification. The test session was signed out afterward.
+- Pending-admin action regressions ran in isolated fixtures. Production user accounts were not deactivated or modified for testing. Own-account/last-usable-admin safeguards remain intentional.
