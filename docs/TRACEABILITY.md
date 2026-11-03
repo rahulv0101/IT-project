@@ -363,3 +363,7 @@ Password-only sign-in and production admin access are implemented in `backend/sr
 ### Lecturer join-code visibility after creation — 2026-11-03
 
 The lecturer-owned `/me/modules` catalogue includes saved join codes, displayed in selectable fields with Copy buttons by `Modules` in `frontend/src/main.jsx`. Catalogue API regressions cover repeated reads/search, other-lecturer boundaries and student response privacy. Component regressions cover remounting and successful/denied clipboard access. `module-joincode.spec.js` covers real reload, navigation, logout/login persistence, clipboard copying, mobile containment, accessibility and student presentation.
+
+### Empty student Practice Labs — 2026-11-03
+
+Migration 032 provisions four system starter labs independently of module enrolment. `labAccess` and the `/labs` catalogue preserve module ownership while allowing student access to system content. `PracticeLabs` fetches authorized details before opening players and handles failures/search misses. API tests exercise unenrolled student access, all four kinds, immutable system content, private attempts and server-evaluated spreadsheet feedback. Component tests cover summary/detail loading and recoverable failures. `practice-labs-regression.spec.js` uses the real catalogue, players and attempt APIs to run all four exercises, verify checks/calculations/reflections and restore saved work on mobile and desktop.

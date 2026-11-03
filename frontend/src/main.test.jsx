@@ -2312,21 +2312,53 @@ it('practice labs lists labs and opens the browser-only code lab', async () => {
   };
   vi.stubGlobal(
     'fetch',
-    vi.fn().mockResolvedValue({
+    vi.fn(async (path) => ({
       ok: true,
       status: 200,
-      json: async () => ({ data: [lab] }),
-    }),
+      json: async () =>
+        String(path).endsWith('/labs/lab-1')
+          ? { lab }
+          : { data: [{ ...lab, config: undefined }] },
+    })),
   );
   render(<PracticeLabs user={{ role: 'student' }} />);
   expect(await screen.findByText('Heading lab')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Open lab' }));
   expect(await screen.findByTitle('Code preview')).toBeTruthy();
   expect(screen.getByRole('tab', { name: 'HTML' })).toBeTruthy();
+  expect(screen.getByLabelText('html code').value).toBe('<h1>Hello</h1>');
   expect(screen.getByRole('button', { name: 'Run' })).toBeTruthy();
   const frame = screen.getByTitle('Code preview');
   expect(frame.getAttribute('sandbox')).toBe('allow-scripts');
   expect(frame.srcdoc).toContain("default-src 'none'");
+  vi.unstubAllGlobals();
+});
+
+it('shows a useful error when lab details fail instead of opening an empty player', async () => {
+  cleanup();
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (path) =>
+      String(path).endsWith('/labs/unavailable')
+        ? {
+            ok: false,
+            status: 404,
+            json: async () => ({ error: { message: 'Lab not found.' } }),
+          }
+        : response({
+            data: [
+              { lab_id: 'unavailable', kind: 'code', title: 'Unavailable lab' },
+            ],
+          }),
+    ),
+  );
+  render(<PracticeLabs user={{ role: 'student' }} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Open lab' }));
+  expect((await screen.findByRole('alert')).textContent).toContain(
+    'Lab not found.',
+  );
+  expect(screen.queryByTitle('Code preview')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Open lab' }).disabled).toBe(false);
   vi.unstubAllGlobals();
 });
 

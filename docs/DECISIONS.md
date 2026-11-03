@@ -310,3 +310,10 @@ claiming this requirement done. No paid API was used for these attempts.
 - The saved-module catalogue omitted `join_code`, while creation returned it. The UI therefore displayed a code only until its local creation state was lost on navigation or reload.
 - The lecturer catalogue now includes each owned module's existing code. Student catalogue responses continue to omit it, and lecturer ownership restrictions remain enforced.
 - Lecturer module cards label the selectable code “Student join code”, explain how to share it, and provide clipboard copying with a manual-copy fallback. Newly created and fetched module cards are deduplicated by ID.
+
+### 2026-11-03 — Make student Practice Labs usable in production
+
+- Production had no lab records. The exercises in the developer seed existed only in demo modules; normal students consequently received an empty catalogue. Migration 032 adds four system-owned starter exercises (code, spreadsheet, calculator and scenario) without running the demo seed or enrolling students into unrelated modules.
+- Starter labs have no module/author and are constrained to published system scope. Existing module labs retain required module/author references and their enrolment/lecturer ownership checks. Students can read starter content and save only their own attempts; lecturers cannot change or delete system starters.
+- Catalogue rows are summaries. The UI now requests authorized lab details before mounting a player, reports detail-loading failures, and shows a useful search-empty state. This fixes missing starter code, grids, calculator fields and scenario nodes.
+- Code drafts restore on reopening; saved scenario terminal nodes restore their reflection. Spreadsheet saves compute feedback and completion against server-held expected values, return feedback immediately and keep expected answers private. Practice progress remains separate from scored quizzes and leaderboards.

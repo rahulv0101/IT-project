@@ -979,8 +979,28 @@ export function CodeLabPlayer({ lab, onBack }) {
       setMessage(error.message);
     }
   };
-  const update = (value) =>
+  useEffect(() => {
+    let live = true;
+    api(`/labs/${lab.lab_id}/attempt`)
+      .then((body) => {
+        const saved = body.attempt?.submission;
+        if (live && saved)
+          setCode({
+            html: saved.html ?? original.html,
+            css: saved.css ?? original.css,
+            js: saved.js ?? original.js,
+          });
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [lab.lab_id]);
+  const update = (value) => {
+    setChecks([]);
+    setRan(false);
     setCode((current) => ({ ...current, [tab]: value.slice(0, 20000) }));
+  };
   return (
     <section className="practice-lab-page">
       <button className="link-button" onClick={onBack}>
@@ -1393,6 +1413,7 @@ export function ScenarioLabPlayer({ lab, onBack }) {
     ),
   );
   const [summary, setSummary] = useState('');
+  const [saveError, setSaveError] = useState('');
   const node = nodes.find((item) => item.id === nodeId) || nodes[0];
   const save = async (nextNode, nextMeters) => {
     await api(`/labs/${lab.lab_id}/attempt`, {
@@ -1411,7 +1432,14 @@ export function ScenarioLabPlayer({ lab, onBack }) {
     api(`/labs/${lab.lab_id}/attempt`)
       .then((body) => {
         const saved = body.attempt?.submission;
-        if (saved?.nodeId) setNodeId(saved.nodeId);
+        if (saved?.nodeId) {
+          setNodeId(saved.nodeId);
+          const savedNode = nodes.find((item) => item.id === saved.nodeId);
+          if (savedNode?.terminal)
+            setSummary(
+              savedNode.reflection || 'You reached the end of this scenario.',
+            );
+        }
         if (saved?.meters) setMeters(saved.meters);
       })
       .catch(() => {});
@@ -1428,7 +1456,11 @@ export function ScenarioLabPlayer({ lab, onBack }) {
         nodes.find((item) => item.id === choice.next)?.reflection ||
           'You reached the end of this scenario.',
       );
-    await save(choice.next, nextMeters);
+    try {
+      await save(choice.next, nextMeters);
+    } catch {
+      setSaveError('Your progress could not be saved. Please try again.');
+    }
   };
   const restart = () => {
     const initial = Object.fromEntries(
@@ -1444,6 +1476,7 @@ export function ScenarioLabPlayer({ lab, onBack }) {
       <button className="link-button" onClick={onBack}>
         ← Back to Practice Labs
       </button>
+      {saveError && <p role="alert">{saveError}</p>}
       <article className="card">
         <span className="eyebrow">DECISION SCENARIO</span>
         <h2>{lab.title}</h2>
@@ -1586,6 +1619,22 @@ export function PracticeLabs({ user }) {
   );
   const [selected, setSelected] = useState(null);
   const [search, setSearch] = useState('');
+  const [opening, setOpening] = useState('');
+  const [openError, setOpenError] = useState('');
+  const openLab = async (lab) => {
+    setOpening(lab.lab_id);
+    setOpenError('');
+    try {
+      const body = await api(`/labs/${lab.lab_id}`);
+      if (!body.lab?.config)
+        throw new Error('This lab could not be loaded. Please try again.');
+      setSelected(body.lab);
+    } catch (error) {
+      setOpenError(error.message);
+    } finally {
+      setOpening('');
+    }
+  };
   const labs = state.data.filter((lab) =>
     lab.title.toLowerCase().includes(search.toLowerCase()),
   );
@@ -1613,8 +1662,9 @@ export function PracticeLabs({ user }) {
         <span className="eyebrow">PRACTICE LABS</span>
         <h2>Learn by building</h2>
         <p>
-          Experiment safely in your browser. Your code never leaves this page
-          until you save a draft.
+          Build coding skills, explore spreadsheets and calculators, and try
+          decision scenarios. Starter labs are available to every student;
+          module labs appear when your lecturer publishes them.
         </p>
         <input
           aria-label="Search practice labs"
@@ -1627,6 +1677,19 @@ export function PracticeLabs({ user }) {
         state={state}
         empty="No published practice labs are available yet."
       />
+      {openError && (
+        <p role="alert" className="field-error">
+          {openError}
+        </p>
+      )}
+      {!state.loading &&
+        !state.error &&
+        state.data.length > 0 &&
+        labs.length === 0 && (
+          <p className="empty-state">
+            No labs match your search. Try a different title.
+          </p>
+        )}
       <div className="lab-grid">
         {labs.map((lab) => (
           <article className="card lab-card" key={lab.lab_id}>
@@ -1638,10 +1701,18 @@ export function PracticeLabs({ user }) {
             </span>
             <h3>{lab.title}</h3>
             <p>{lab.instructions}</p>
-            <span className="tag">Practice only</span>
+            <span className="tag">
+              {lab.is_starter
+                ? 'Starter lab · Practice only'
+                : 'Module lab · Practice only'}
+            </span>
             {user.role === 'student' ? (
-              <button className="primary" onClick={() => setSelected(lab)}>
-                Open lab
+              <button
+                className="primary"
+                disabled={Boolean(opening)}
+                onClick={() => openLab(lab)}
+              >
+                {opening === lab.lab_id ? 'Opening lab…' : 'Open lab'}
               </button>
             ) : (
               <span className="tag">Authoring only</span>

@@ -105,6 +105,96 @@ describe('Practice Lab API', () => {
     await pool.query(`DELETE FROM users WHERE email LIKE 'lab-%@example.com'`);
   });
 
+  it('gives students without enrolments all four starter kinds and isolates saved progress', async () => {
+    const listed = await outsiderAgent.get('/api/v1/labs');
+    expect(listed.status).toBe(200);
+    const starters = listed.body.data.filter((row) => row.is_starter);
+    expect(starters).toHaveLength(4);
+    expect(new Set(starters.map((row) => row.kind))).toEqual(
+      new Set(['code', 'spreadsheet', 'calculator', 'scenario']),
+    );
+    for (const starter of starters) {
+      const detail = await outsiderAgent.get(`/api/v1/labs/${starter.lab_id}`);
+      expect(detail.status).toBe(200);
+      expect(detail.body.lab.config).toBeTruthy();
+      expect(detail.body.lab.module_id).toBeNull();
+      expect(
+        (
+          await lecturerAgent
+            .patch(`/api/v1/labs/${starter.lab_id}`)
+            .send({ title: 'Changed' })
+        ).status,
+      ).toBe(403);
+      expect(
+        (await lecturerAgent.delete(`/api/v1/labs/${starter.lab_id}`)).status,
+      ).toBe(403);
+      expect(
+        (
+          await lecturerAgent
+            .post(`/api/v1/labs/${starter.lab_id}/duplicate`)
+            .send({})
+        ).status,
+      ).toBe(403);
+    }
+    const code = starters.find((row) => row.kind === 'code');
+    const saved = await outsiderAgent
+      .put(`/api/v1/labs/${code.lab_id}/attempt`)
+      .send({
+        submission: { html: '<h1>My draft</h1>' },
+        checksPassed: 0,
+        checksTotal: 2,
+        completed: false,
+      });
+    expect(saved.status).toBe(200);
+    expect(
+      (await outsiderAgent.get(`/api/v1/labs/${code.lab_id}/attempt`)).body
+        .attempt.submission.html,
+    ).toContain('My draft');
+    expect(
+      (await studentAgent.get(`/api/v1/labs/${code.lab_id}/attempt`)).body
+        .attempt,
+    ).toBeNull();
+    expect((await outsiderAgent.get(`/api/v1/labs/${lab.lab_id}`)).status).toBe(
+      404,
+    );
+    expect(
+      (await outsiderAgent.get(`/api/v1/labs?moduleId=${moduleRow.module_id}`))
+        .body.data,
+    ).toEqual([]);
+  });
+
+  it('evaluates starter spreadsheet work when saved and returns immediate feedback without expected answers', async () => {
+    const id = '00000000-0000-4000-8000-000000000102';
+    const incorrect = await outsiderAgent
+      .put(`/api/v1/labs/${id}/attempt`)
+      .send({
+        submission: { grid: { A2: '12000', B2: '6700', C2: '1' } },
+        checksPassed: 1,
+        checksTotal: 1,
+        completed: true,
+      });
+    expect(incorrect.body.attempt).toMatchObject({
+      checks_passed: 0,
+      completed: false,
+    });
+    expect(incorrect.body.checkResults[0].passed).toBe(false);
+    const correct = await outsiderAgent.put(`/api/v1/labs/${id}/attempt`).send({
+      submission: { grid: { A2: '12000', B2: '6700', C2: '=A2-B2' } },
+      checksPassed: 0,
+      checksTotal: 1,
+      completed: false,
+    });
+    expect(correct.body.attempt).toMatchObject({
+      checks_passed: 1,
+      completed: true,
+    });
+    expect(correct.body.checkResults[0].passed).toBe(true);
+    expect(JSON.stringify(correct.body)).not.toContain('expected');
+    expect(
+      (await outsiderAgent.get(`/api/v1/labs/${id}/attempt`)).body.checkResults,
+    ).toEqual(correct.body.checkResults);
+  });
+
   it('lists published labs only for enrolled students with recommendation ordering', async () => {
     const result = await studentAgent.get('/api/v1/labs');
     expect(result.status).toBe(200);

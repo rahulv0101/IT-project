@@ -4168,13 +4168,15 @@ const labConfigFor = (kind, config) => {
 const labAccess = async (labId, user) => {
   const result = await pool.query(
     `SELECT l.*,m.module_name,m.module_code,m.lecturer_id
-     FROM labs l JOIN modules m ON m.module_id=l.module_id WHERE l.lab_id=$1`,
+     FROM labs l LEFT JOIN modules m ON m.module_id=l.module_id WHERE l.lab_id=$1`,
     [labId],
   );
   if (!result.rowCount) return null;
   const lab = result.rows[0];
   if (user.role === 'lecturer')
     return lab.lecturer_id === user.userId ? lab : false;
+  if (user.role !== 'student') return false;
+  if (lab.is_starter && lab.status === 'published') return lab;
   const enrolled = await pool.query(
     'SELECT 1 FROM enrollments WHERE student_id=$1 AND module_id=$2',
     [user.userId, lab.module_id],
@@ -4194,6 +4196,21 @@ const labClientView = (lab, user) => {
   }
   return { ...lab, config };
 };
+
+const spreadsheetCheckResults = (lab, submission) =>
+  (lab.config.checks || []).map((check) => {
+    const grid = submission?.grid || {};
+    const evaluated = evaluateCell(grid, check.cell);
+    return {
+      passed:
+        !evaluated.error &&
+        typeof evaluated.value === 'number' &&
+        Math.abs(evaluated.value - check.expected) <= check.tolerance &&
+        (!check.requiresFormula ||
+          String(grid[check.cell] || '').startsWith('=')),
+      hint: check.hint,
+    };
+  });
 
 // ── Practice Labs: catalogue, authoring, attempts, and aggregate progress ──
 app.get('/api/v1/labs', requireAuth, async (req, res, next) => {
@@ -4216,7 +4233,7 @@ app.get('/api/v1/labs', requireAuth, async (req, res, next) => {
       req.user.role === 'lecturer'
         ? ['m.lecturer_id=$1', req.user.userId]
         : [
-            "EXISTS (SELECT 1 FROM enrollments e WHERE e.module_id=l.module_id AND e.student_id=$1) AND l.status='published'",
+            `${req.user.role === 'student' ? '(l.is_starter OR EXISTS (SELECT 1 FROM enrollments e WHERE e.module_id=l.module_id AND e.student_id=$1))' : 'false AND $1::uuid IS NOT NULL'} AND l.status='published'`,
             req.user.userId,
           ];
     const params = [
@@ -4227,11 +4244,11 @@ app.get('/api/v1/labs', requireAuth, async (req, res, next) => {
       (options.page - 1) * options.pageSize,
     ];
     const rows = await pool.query(
-      `SELECT l.lab_id,l.module_id,l.kind,l.title,l.instructions,l.difficulty,l.status,l.created_by,l.created_at,l.updated_at,m.module_code,m.module_name,
+      `SELECT l.lab_id,l.module_id,l.kind,l.title,l.instructions,l.difficulty,l.status,l.created_by,l.created_at,l.updated_at,l.is_starter,m.module_code,m.module_name,
               COALESCE(la.checks_passed,0)::int AS checks_passed,COALESCE(la.checks_total,jsonb_array_length(COALESCE(l.config->'checks','[]'::jsonb)))::int AS checks_total,COALESCE(la.completed,false) AS completed
-       FROM labs l JOIN modules m ON m.module_id=l.module_id LEFT JOIN lab_attempts la ON la.lab_id=l.lab_id AND la.student_id=$1
+       FROM labs l LEFT JOIN modules m ON m.module_id=l.module_id LEFT JOIN lab_attempts la ON la.lab_id=l.lab_id AND la.student_id=$1
        WHERE ${ownership[0]} AND ($2::uuid IS NULL OR l.module_id=$2) AND ($3='' OR l.title ILIKE $3)
-       ORDER BY ${programmeOrder},l.created_at DESC LIMIT $4 OFFSET $5`,
+       ORDER BY ${programmeOrder},l.created_at DESC,l.lab_id LIMIT $4 OFFSET $5`,
       params,
     );
     res.json({
@@ -4444,19 +4461,10 @@ app.get(
         [req.params.labId, req.user.userId],
       );
       const attempt = result.rows[0] || null;
-      const checks = Array.isArray(lab.config?.checks) ? lab.config.checks : [];
-      const grid = attempt?.submission?.grid || {};
-      const checkResults = checks.map((check) => {
-        const evaluated = evaluateCell(grid, check.cell);
-        const actual = evaluated.value;
-        const passed =
-          !evaluated.error &&
-          typeof actual === 'number' &&
-          Math.abs(actual - check.expected) <= check.tolerance &&
-          (!check.requiresFormula ||
-            String(grid[check.cell] || '').startsWith('='));
-        return { passed, hint: check.hint };
-      });
+      const checkResults =
+        lab.kind === 'spreadsheet'
+          ? spreadsheetCheckResults(lab, attempt?.submission)
+          : [];
       res.json({ attempt, checkResults });
     } catch (e) {
       next(e);
@@ -4489,11 +4497,19 @@ app.put(
       if (!lab)
         return error(res, 404, 'NOT_FOUND', 'Lab not found.', requestId(req));
       sanitizeSubmission(data.submission);
-      const total = Math.min(
-        data.checksTotal,
-        Array.isArray(lab.config.checks) ? lab.config.checks.length : 0,
-      );
-      const passed = Math.min(data.checksPassed, total);
+      const checkResults =
+        lab.kind === 'spreadsheet'
+          ? spreadsheetCheckResults(lab, data.submission)
+          : null;
+      const total = checkResults
+        ? checkResults.length
+        : Math.min(
+            data.checksTotal,
+            Array.isArray(lab.config.checks) ? lab.config.checks.length : 0,
+          );
+      const passed = checkResults
+        ? checkResults.filter((check) => check.passed).length
+        : Math.min(data.checksPassed, total);
       const result = await pool.query(
         `INSERT INTO lab_attempts(lab_id,student_id,submission,checks_passed,checks_total,completed,updated_at) VALUES($1,$2,$3,$4,$5,$6,now()) ON CONFLICT(lab_id,student_id) DO UPDATE SET submission=EXCLUDED.submission,checks_passed=EXCLUDED.checks_passed,checks_total=EXCLUDED.checks_total,completed=EXCLUDED.completed,updated_at=now() RETURNING *`,
         [
@@ -4502,10 +4518,16 @@ app.put(
           data.submission,
           passed,
           total,
-          data.completed && passed === total,
+          checkResults
+            ? total > 0 && passed === total
+            : data.completed && passed === total,
         ],
       );
-      res.json({ attempt: result.rows[0], selfChecked: true });
+      res.json({
+        attempt: result.rows[0],
+        selfChecked: true,
+        ...(checkResults ? { checkResults } : {}),
+      });
     } catch (e) {
       if (e.message === 'LAB_SUBMISSION_TOO_LARGE')
         return error(

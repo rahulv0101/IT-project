@@ -45,7 +45,7 @@ test('Practice Lab uses a scripts-only sandbox and exposes accessible editor con
 }) => {
   await page.route('**/api/v1/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
-    const body = path.endsWith('/auth/me')
+    let body = path.endsWith('/auth/me')
       ? {
           user: {
             userId: 'student-1',
@@ -53,7 +53,7 @@ test('Practice Lab uses a scripts-only sandbox and exposes accessible editor con
             full_name: 'Demo Student',
           },
         }
-      : path.endsWith('/labs')
+      : /\/labs(?:\/[^/]+)?$/.test(path)
         ? {
             data: [
               {
@@ -72,6 +72,8 @@ test('Practice Lab uses a scripts-only sandbox and exposes accessible editor con
             ],
           }
         : { data: [] };
+    if (/\/labs\/[^/]+$/.test(path) && body.data?.length)
+      body = { lab: body.data.find((lab) => path.endsWith(`/${lab.lab_id}`)) };
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -95,7 +97,7 @@ test('Business Lab spreadsheet and calculator flows are accessible', async ({
 }) => {
   await page.route('**/api/v1/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
-    const body = path.endsWith('/auth/me')
+    let body = path.endsWith('/auth/me')
       ? {
           user: {
             userId: 'student-1',
@@ -103,7 +105,7 @@ test('Business Lab spreadsheet and calculator flows are accessible', async ({
             full_name: 'Business Student',
           },
         }
-      : path.endsWith('/labs')
+      : /\/labs(?:\/[^/]+)?$/.test(path)
         ? {
             data: [
               {
@@ -141,6 +143,8 @@ test('Business Lab spreadsheet and calculator flows are accessible', async ({
             ],
           }
         : { data: [] };
+    if (/\/labs\/[^/]+$/.test(path) && body.data?.length)
+      body = { lab: body.data.find((lab) => path.endsWith(`/${lab.lab_id}`)) };
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -160,9 +164,9 @@ test('Business Lab scenario flow is accessible and resumable', async ({
 }) => {
   await page.route('**/api/v1/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
-    const body = path.endsWith('/auth/me')
+    let body = path.endsWith('/auth/me')
       ? { user: { userId: 'student-1', role: 'student' } }
-      : path.endsWith('/labs')
+      : /\/labs(?:\/[^/]+)?$/.test(path)
         ? {
             data: [
               {
@@ -194,6 +198,8 @@ test('Business Lab scenario flow is accessible and resumable', async ({
             ],
           }
         : { data: [] };
+    if (/\/labs\/[^/]+$/.test(path) && body.data?.length)
+      body = { lab: body.data.find((lab) => path.endsWith(`/${lab.lab_id}`)) };
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
