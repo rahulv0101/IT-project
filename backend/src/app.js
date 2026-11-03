@@ -57,6 +57,7 @@ import {
 import { registerInfectedRoutes } from './games/infected/routes.js';
 import { registerIslandEscapeRoutes } from './games/island_escape/routes.js';
 import { registerMemoryMatchRoutes } from './games/memory_match/routes.js';
+import { memoryCountSql } from './games/memory_match/eligibility.js';
 import { registerBossBattleRoutes } from './games/boss_battle/routes.js';
 import { registerPixelRacerRoutes } from './games/pixel_racer/routes.js';
 import { registerTimerTriviaRoutes } from './games/timer_trivia/routes.js';
@@ -4151,11 +4152,7 @@ async function gameAvailabilityForQuiz(user, quiz) {
   const counts = (
     await pool.query(
       `SELECT count(q.question_id)::int AS question_count,
-        count(q.question_id) FILTER (WHERE length(q.question_text)<=140 AND EXISTS (
-          SELECT 1 FROM question_options correct
-          WHERE correct.question_id=q.question_id AND correct.is_correct=true
-            AND length(correct.option_text)<=60
-        ))::int AS memory_eligible,
+        (${memoryCountSql}) AS memory_eligible,
         count(q.question_id) FILTER (WHERE EXISTS (
           SELECT 1 FROM question_options correct
           WHERE correct.question_id=q.question_id AND correct.is_correct=true

@@ -351,3 +351,7 @@ FR-23 polish evidence (2026-11-02): three added Memory Match API tests prove ran
 | Mobile PWA                                                    | Manifest, icons, generated service worker, install/update/offline UI      | Browser manifest/icon/offline/cache privacy checks, Chromium/Firefox viewports and iPhone WebKit                    |
 
 Detailed results and deployment evidence: `docs/COLLABORATION_VALIDATION_2026-11-03.md`.
+
+### Memory Match “not enough questions” correction — 2026-11-03
+
+Shared `memory_match/eligibility.js`, minimum configuration and migration 030 align catalogue availability with actual dealing for 2–6 pairs and longer question/answer text. API tests cover 2-, 3- and 5-pair boards, long AI-style text, normalized duplicate answers and no hidden-text exposure. `memory-match-regression.spec.js` plays a real two-question quiz to completion and checks long-text containment, accessibility and mobile overflow. Results: `docs/MEMORY_MATCH_FIX_2026-11-03.md`.

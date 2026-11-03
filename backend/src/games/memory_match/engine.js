@@ -25,11 +25,23 @@ export function buildCards(
   rng = Math.random,
   pairs = MEMORY_DEFAULT_PAIRS,
 ) {
+  const seen = new Set();
   const eligible = questions
-    .filter(
-      (q) =>
-        q.question_text?.length <= 140 && q.correct_option_text?.length <= 60,
-    )
+    .filter((q) => {
+      if (
+        !['multiple_choice', 'true_false'].includes(
+          q.question_type || 'multiple_choice',
+        )
+      )
+        return false;
+      const answer = q.correct_option_text
+        ?.trim()
+        .replace(/\s+/g, ' ')
+        .toLowerCase();
+      if (!q.question_text?.trim() || !answer || seen.has(answer)) return false;
+      seen.add(answer);
+      return true;
+    })
     .slice(0, pairs);
   const cards = eligible.flatMap((q) => [
     {

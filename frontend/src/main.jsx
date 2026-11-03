@@ -5123,7 +5123,8 @@ export function MemoryMatchGame({ quizId, onBack }) {
         </div>
       </div>
       <p className="memory-instructions">
-        Match each question card with its correct answer card.
+        Match each question card with its correct answer card. This round has{' '}
+        {play.cards.length / 2} pairs.
       </p>
       <div className="memory-grid" aria-label="Memory Match cards">
         {play.cards.map((card, index) => {

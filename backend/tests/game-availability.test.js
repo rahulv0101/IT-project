@@ -10,7 +10,7 @@ describe('shared game availability policy', () => {
     const games = [
       ['infected', 'Infected', 6],
       ['island_escape', 'Island Escape', 30],
-      ['memory_match', 'Memory Match', 6],
+      ['memory_match', 'Memory Match', 2],
       ['boss_battle', 'Boss Battle', 12],
       ['pixel_racer', 'Pixel Car Racer', 10],
       ['timer_trivia', 'Timer Trivia', 10],
@@ -64,7 +64,7 @@ describe('shared game availability policy', () => {
     for (const [key, display_name, minimum_questions] of [
       ['infected', 'Infected', 6],
       ['island_escape', 'Island Escape', 30],
-      ['memory_match', 'Memory Match', 6],
+      ['memory_match', 'Memory Match', 2],
       ['boss_battle', 'Boss Battle', 12],
       ['pixel_racer', 'Pixel Car Racer', 10],
       ['timer_trivia', 'Timer Trivia', 10],

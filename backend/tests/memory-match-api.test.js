@@ -177,7 +177,7 @@ beforeAll(async () => {
     fixture.module,
     fixture.lecturer,
     'Memory Short',
-    5,
+    1,
   );
   fixture.competitive = await addQuiz(
     fixture.module,
@@ -231,17 +231,113 @@ describe.sequential('Memory Match start and refresh API', () => {
     expect(count.rows[0].count).toBe(1);
   });
 
-  it('refuses fewer than six eligible questions with the standard error shape and reason', async () => {
+  it('explains why a quiz with only one usable pair cannot start', async () => {
     const response = await start(await login('student'), fixture.short);
     expect(response.status).toBe(409);
     expect(response.body).toEqual({
       error: expect.objectContaining({
         code: 'NOT_ENOUGH_QUESTIONS',
-        message: expect.stringContaining('at least 6 eligible questions'),
+        message: expect.stringContaining(
+          'at least 2 questions with different correct answers',
+        ),
       }),
     });
   });
 
+  it('plays shorter quizzes with two to five distinct pairs and agrees with the picker', async () => {
+    const agent = await login('student');
+    for (const count of [2, 3, 5]) {
+      const quizId = await addQuiz(
+        fixture.module,
+        fixture.lecturer,
+        `Short board ${crypto.randomUUID().slice(0, 6)}`,
+        count,
+      );
+      const available = await agent.get(`/api/v1/quizzes/${quizId}/games`);
+      expect(available.status).toBe(200);
+      const memory = available.body.data.find((g) => g.key === 'memory_match');
+      expect(memory).toMatchObject({
+        available: true,
+        minimum_questions: 2,
+        questionCount: count,
+        eligible_question_count: count,
+      });
+      const play = await start(agent, quizId);
+      expect(play.status).toBe(200);
+      expect(play.body.data.cards).toHaveLength(count * 2);
+    }
+  });
+  it('keeps long AI-style questions and answers eligible without exposing their hidden text', async () => {
+    const quizId = await addQuiz(
+      fixture.module,
+      fixture.lecturer,
+      'Long memory content',
+      3,
+    );
+    await pool.query(
+      "UPDATE questions SET question_text=question_text||repeat(' Explain the database design in this scenario.',8) WHERE quiz_id=$1",
+      [quizId],
+    );
+    await pool.query(
+      "UPDATE question_options SET option_text=option_text||repeat(' Detailed explanation of relational design.',5) WHERE is_correct=true AND question_id IN(SELECT question_id FROM questions WHERE quiz_id=$1)",
+      [quizId],
+    );
+    const agent = await login('student');
+    const availability = await agent.get(`/api/v1/quizzes/${quizId}/games`);
+    expect(
+      availability.body.data.find((g) => g.key === 'memory_match'),
+    ).toMatchObject({ available: true, questionCount: 3 });
+    const response = await start(agent, quizId);
+    expect(response.status).toBe(200);
+    expect(response.body.data.cards).toHaveLength(6);
+    const state = await playState(response.body.data.playId);
+    expect(
+      state.cards.some((c) => c.kind === 'question' && c.text.length > 140),
+    ).toBe(true);
+    expect(
+      state.cards.some((c) => c.kind === 'answer' && c.text.length > 60),
+    ).toBe(true);
+    expectNoHiddenText(response, state);
+    expect(
+      (await clearPlay(agent, response.body.data.playId)).body.data.status,
+    ).toBe('finished');
+  });
+  it('normalizes duplicate answers consistently in the picker and dealing endpoint', async () => {
+    const quizId = await addQuiz(
+      fixture.module,
+      fixture.lecturer,
+      'Duplicate memory answers',
+      5,
+    );
+    const ids = (
+      await pool.query(
+        'SELECT question_id FROM questions WHERE quiz_id=$1 ORDER BY question_id',
+        [quizId],
+      )
+    ).rows;
+    for (let i = 0; i < ids.length; i++)
+      await pool.query(
+        'UPDATE question_options SET option_text=$2 WHERE question_id=$1 AND is_correct=true',
+        [
+          ids[i].question_id,
+          [
+            'Same answer',
+            ' same   ANSWER ',
+            'Same answer',
+            'Same answer',
+            'Same answer',
+          ][i],
+        ],
+      );
+    const agent = await login('student');
+    const availability = await agent.get(`/api/v1/quizzes/${quizId}/games`);
+    expect(
+      availability.body.data.find((g) => g.key === 'memory_match'),
+    ).toMatchObject({ available: false, questionCount: 1 });
+    const response = await start(agent, quizId);
+    expect(response.status).toBe(409);
+    expect(response.body.error.message).toContain('1 usable pair');
+  });
   it('samples different questions across plays instead of always the same six', async () => {
     const quizId = await addQuiz(
       fixture.module,
@@ -281,7 +377,7 @@ describe.sequential('Memory Match start and refresh API', () => {
     expect(new Set(answers).size).toBe(answers.length);
   });
 
-  it('counts only distinct answers toward the six-pair minimum', async () => {
+  it('counts only distinct answers toward the two-pair minimum', async () => {
     const quizId = await addQuiz(
       fixture.module,
       fixture.lecturer,

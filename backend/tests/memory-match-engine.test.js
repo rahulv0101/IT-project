@@ -21,6 +21,29 @@ describe('Memory Match engine', () => {
       new Set(['question', 'answer']),
     );
   });
+  it('accepts full authored text while removing equivalent answers', () => {
+    const cards = buildCards(
+      [
+        {
+          question_id: 'long',
+          question_text: 'A database scenario. '.repeat(20),
+          correct_option_text: 'An extended answer. '.repeat(8),
+        },
+        ...questions,
+        {
+          question_id: 'duplicate',
+          question_text: 'Duplicate answer question',
+          correct_option_text: '  ANSWER   0 ',
+        },
+      ],
+      () => 0.5,
+      10,
+    );
+    expect(cards).toHaveLength(14);
+    expect(
+      cards.some((c) => c.kind === 'question' && c.text.length > 140),
+    ).toBe(true);
+  });
   it('matches pairs and scores without negative values', () => {
     let state = {
       ...initialMemoryState(),

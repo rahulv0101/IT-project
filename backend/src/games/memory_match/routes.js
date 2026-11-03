@@ -6,6 +6,7 @@ import { validateGameState } from '../play-state.js';
 import { MEMORY_DEFAULT_PAIRS, MEMORY_MIN_PAIRS } from './config.js';
 import { flipCard, resolveFlip } from './engine.js';
 import './state.js';
+import { memoryQuestionsSql } from './eligibility.js';
 
 const startSchema = z.object({ quizId: z.string().uuid() }).strict();
 const flipSchema = z.object({ cardId: z.string().uuid() }).strict();
@@ -265,17 +266,8 @@ export function registerMemoryMatchRoutes({
     });
   };
   const eligibleQuestions = async (client, quizId) =>
-    (
-      await client.query(
-        `SELECT question_id,question_text,correct_option_text FROM (
-           SELECT DISTINCT ON (lower(o.option_text)) q.question_id,q.question_text,o.option_text AS correct_option_text
-           FROM questions q JOIN question_options o ON o.question_id=q.question_id AND o.is_correct=true
-           WHERE q.quiz_id=$1 AND length(q.question_text)<=140 AND length(o.option_text)<=60
-           ORDER BY lower(o.option_text),random()
-         ) distinct_answers ORDER BY random() LIMIT $2`,
-        [quizId, MEMORY_DEFAULT_PAIRS],
-      )
-    ).rows;
+    (await client.query(memoryQuestionsSql, [quizId, MEMORY_DEFAULT_PAIRS]))
+      .rows;
 
   app.post(
     '/api/v1/games/memory-match/plays',
@@ -288,19 +280,14 @@ export function registerMemoryMatchRoutes({
         await client.query('BEGIN');
         const quiz = await authorize(client, req, res, data.quizId);
         if (!quiz) return client.query('ROLLBACK');
-        const count = (
-          await client.query(
-            `SELECT count(DISTINCT lower(o.option_text))::int AS count FROM questions q JOIN question_options o ON o.question_id=q.question_id AND o.is_correct=true WHERE q.quiz_id=$1 AND length(q.question_text)<=140 AND length(o.option_text)<=60`,
-            [data.quizId],
-          )
-        ).rows[0].count;
-        if (count < MEMORY_MIN_PAIRS) {
+        const questions = await eligibleQuestions(client, data.quizId);
+        if (questions.length < MEMORY_MIN_PAIRS) {
           await client.query('ROLLBACK');
           return error(
             res,
             409,
             'NOT_ENOUGH_QUESTIONS',
-            `Memory Match needs at least ${MEMORY_MIN_PAIRS} eligible questions.`,
+            `Memory Match needs at least ${MEMORY_MIN_PAIRS} questions with different correct answers. This quiz has ${questions.length} usable ${questions.length === 1 ? 'pair' : 'pairs'}.`,
             requestId(req),
           );
         }
@@ -326,7 +313,7 @@ export function registerMemoryMatchRoutes({
           )
         ).rows[0];
         if (!play) {
-          const state = makeState(await eligibleQuestions(client, data.quizId));
+          const state = makeState(questions);
           play = (
             await client.query(
               `INSERT INTO game_plays(game_type_id,student_id,quiz_id,state,score) VALUES($1,$2,$3,$4::jsonb,0) RETURNING *`,

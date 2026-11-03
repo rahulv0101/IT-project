@@ -10,13 +10,15 @@ const eligibleQuestionCount = (gameKey, counts) =>
       : counts.question_count;
 
 const questionReason = (game, count) =>
-  game.key === 'island_escape'
-    ? `Needs a quiz with at least ${game.minimum_questions} questions.`
-    : ['boss_battle', 'pixel_racer', 'timer_trivia'].includes(game.key)
-      ? `${game.display_name} needs at least ${game.minimum_questions} eligible questions.`
-      : count < game.minimum_questions
-        ? `Not enough questions for this game yet. At least ${game.minimum_questions} are required.`
-        : null;
+  game.key === 'memory_match'
+    ? `Memory Match needs at least ${game.minimum_questions} questions with different correct answers. This quiz has ${count} usable ${count === 1 ? 'pair' : 'pairs'}.`
+    : game.key === 'island_escape'
+      ? `Needs a quiz with at least ${game.minimum_questions} questions.`
+      : ['boss_battle', 'pixel_racer', 'timer_trivia'].includes(game.key)
+        ? `${game.display_name} needs at least ${game.minimum_questions} eligible questions.`
+        : count < game.minimum_questions
+          ? `Not enough questions for this game yet. At least ${game.minimum_questions} are required.`
+          : null;
 
 export function getGameAvailability({
   game,
@@ -59,7 +61,9 @@ export function getGameAvailability({
   return {
     ...game,
     questionCount,
-    eligible_question_count: counts.answerable,
+    eligible_question_count: memoryEligible(game.key)
+      ? questionCount
+      : counts.answerable,
     question_count: counts.question_count,
     available: !reason,
     reason,
