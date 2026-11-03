@@ -251,6 +251,7 @@ export function registerAdminRoutes({
             action: z.enum([
               'activate',
               'suspend',
+              'deactivate',
               'revoke_sessions',
               'require_password_reset',
             ]),
@@ -287,22 +288,26 @@ export function registerAdminRoutes({
       }
       if (
         params.userId.toLowerCase() === req.user.userId &&
-        data.action === 'suspend'
+        ['suspend', 'deactivate'].includes(data.action)
       )
         return error(
           res,
           409,
           'SELF_SUSPEND',
-          'You cannot suspend your own account.',
+          'You cannot suspend or deactivate your own account.',
           requestId(req),
         );
       const target = await client.query(
-        "SELECT user_id,role,account_status FROM users WHERE user_id=$1 AND account_status<>'deleted'",
+        "SELECT user_id,role,account_status FROM users WHERE user_id=$1 AND account_status<>'deleted' FOR UPDATE",
         [params.userId],
       );
       if (!target.rowCount)
         return error(res, 404, 'NOT_FOUND', 'User not found.', requestId(req));
-      if (data.action === 'suspend' && target.rows[0].role === 'admin') {
+      if (
+        ['suspend', 'deactivate'].includes(data.action) &&
+        target.rows[0].role === 'admin' &&
+        target.rows[0].account_status === 'active'
+      ) {
         const active = await client.query(
           "SELECT count(*)::int count FROM users WHERE role='admin' AND account_status='active'",
         );
@@ -311,7 +316,7 @@ export function registerAdminRoutes({
             res,
             409,
             'LAST_ADMIN',
-            'The final active administrator cannot be suspended.',
+            'The final active administrator cannot be suspended or deactivated.',
             requestId(req),
           );
       }
@@ -320,10 +325,10 @@ export function registerAdminRoutes({
           "UPDATE users SET account_status='active' WHERE user_id=$1",
           [params.userId],
         );
-      if (data.action === 'suspend') {
+      if (['suspend', 'deactivate'].includes(data.action)) {
         await client.query(
-          "UPDATE users SET account_status='suspended' WHERE user_id=$1",
-          [params.userId],
+          'UPDATE users SET account_status=$2 WHERE user_id=$1',
+          [params.userId, data.action === 'suspend' ? 'suspended' : 'inactive'],
         );
         await client.query(
           'UPDATE sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1',

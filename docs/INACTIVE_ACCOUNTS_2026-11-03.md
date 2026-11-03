@@ -1,0 +1,9 @@
+# Retained inactive accounts and admin access controls — 2026-11-03
+
+Delete previously anonymized personal details, disabled the password and removed several membership/preference relationships. Lecturer deletion required reassignment. The owner requested keeping user data and making accounts inactive instead.
+
+Admin Users now offers Deactivate with an email/reason confirmation. It preserves the user and every linked relationship, marks the account inactive and revokes its sessions. The user remains searchable, and Activate restores sign-in with the same password. Existing module ownership, group leadership, results and drafts remain attributable to the original user. The old DELETE endpoint uses the new retention behavior for compatibility. Migration 033 adds the inactive status; it does not rewrite historical records.
+
+Suspend blocks sign-in until activation. Revoke sessions invalidates current cookies but allows a fresh login. Open clients return to sign-in on a failed authenticated request, focus/visibility checks or the 15-second visible-session check. Incorrect current-password errors do not log users out. User-row locking coordinates session issuance with admin mutations; state changes, revocation and audit writes are transactional.
+
+Validation: 668 automated tests passed, with no skips. Tests verify retained fields and relationships, lecturer ownership, reactivation, session rules and rollback on revocation failure. Three real two-browser scenarios passed on Chromium at 390px/1280px and Firefox at 390px, including accessibility checks. Lint, type checking, formatting and production build passed. A private 48-table production backup was saved before migration.

@@ -568,6 +568,38 @@ export function App() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+  useEffect(() => {
+    if (!user) return undefined;
+    let active = true;
+    let checking = false;
+    const expire = () => {
+      if (!active) return;
+      setUser(null);
+      resetNavigation();
+    };
+    const checkSession = async () => {
+      if (checking || document.visibilityState === 'hidden') return;
+      checking = true;
+      try {
+        await api('/auth/me');
+      } catch (reason) {
+        if (reason.code === 'UNAUTHENTICATED') expire();
+      } finally {
+        checking = false;
+      }
+    };
+    const timer = setInterval(checkSession, 15000);
+    window.addEventListener('eduquest:session-expired', checkSession);
+    window.addEventListener('focus', checkSession);
+    document.addEventListener('visibilitychange', checkSession);
+    return () => {
+      active = false;
+      clearInterval(timer);
+      window.removeEventListener('eduquest:session-expired', checkSession);
+      window.removeEventListener('focus', checkSession);
+      document.removeEventListener('visibilitychange', checkSession);
+    };
+  }, [user?.userId || user?.user_id]);
   if (verificationToken !== null)
     return (
       <EmailVerification

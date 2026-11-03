@@ -427,16 +427,35 @@ const requireRole = (role) => (req, res, next) =>
       );
 const issueSession = async (userId, res) => {
   const token = crypto.randomBytes(32).toString('base64url');
-  await pool.query(
-    `INSERT INTO sessions(user_id,token_hash,expires_at) VALUES($1,$2,now()+interval '8 hours')`,
-    [userId, sessionHash(token)],
-  );
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const user = await client.query(
+      'SELECT account_status FROM users WHERE user_id=$1 FOR UPDATE',
+      [userId],
+    );
+    if (user.rows[0]?.account_status !== 'active') {
+      await client.query('ROLLBACK');
+      return false;
+    }
+    await client.query(
+      `INSERT INTO sessions(user_id,token_hash,expires_at) VALUES($1,$2,now()+interval '8 hours')`,
+      [userId, sessionHash(token)],
+    );
+    await client.query('COMMIT');
+  } catch (cause) {
+    await client.query('ROLLBACK');
+    throw cause;
+  } finally {
+    client.release();
+  }
   res.cookie('eduquest_session', token, {
     httpOnly: true,
     secure: cookieSecure,
     sameSite: 'strict',
     maxAge: 8 * 60 * 60 * 1000,
   });
+  return true;
 };
 const issueVerificationMail = async (userId, email, targetEmail = null) => {
   const client = await pool.connect();
@@ -643,7 +662,14 @@ app.post('/api/v1/auth/register', async (req, res, next) => {
         }),
       );
     }
-    await issueSession(result.rows[0].user_id, res);
+    if (!(await issueSession(result.rows[0].user_id, res)))
+      return error(
+        res,
+        403,
+        'ACCOUNT_INACTIVE',
+        'This account is unavailable. Please contact an administrator.',
+        requestId(req),
+      );
     res.status(201).json({
       user: {
         ...result.rows[0],
@@ -1335,11 +1361,20 @@ app.post('/api/v1/auth/login', async (req, res, next) => {
       return error(
         res,
         403,
-        'ACCOUNT_SUSPENDED',
+        result.rows[0].account_status === 'inactive'
+          ? 'ACCOUNT_INACTIVE'
+          : 'ACCOUNT_SUSPENDED',
+        'This account is inactive or suspended. Please contact an administrator.',
+        requestId(req),
+      );
+    if (!(await issueSession(result.rows[0].user_id, res)))
+      return error(
+        res,
+        403,
+        'ACCOUNT_INACTIVE',
         'This account is unavailable. Please contact an administrator.',
         requestId(req),
       );
-    await issueSession(result.rows[0].user_id, res);
     res.json({
       user: {
         user_id: result.rows[0].user_id,

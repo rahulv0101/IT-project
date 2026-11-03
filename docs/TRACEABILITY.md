@@ -392,3 +392,9 @@ Release approval: the owner explicitly requested committing/pushing these other-
 Removal validation: all three existing admin component tests and both mobile/desktop admin browser navigation checks passed, including accessibility and overflow checks. Lint, type checking, formatting and production build passed.
 
 Production verification: commit `350f724` was pushed to Rahul’s master branch and deployed to https://eduquest-dun.vercel.app. The live administrator view has exactly Overview, Users, Modules, System and Audit; all five sections loaded successfully, and both Moderation and Open reports were absent.
+
+### Inactive accounts, suspension and session revocation — 2026-11-03
+
+Migration 033 and `backend/src/admin/accounts.js` replace destructive deletion with retained inactive accounts. Admin PATCH actions and transactional session issuance enforce state changes against the locked user; `admin-users.jsx` exposes Deactivate/Activate with clear feedback. `http.js` and the App session watcher return revoked clients to sign-in without treating password-form failures as session expiration.
+
+`account-management-api.test.js` checks identical retained user fields, enrolments, memberships, leadership/visibility, lecturer ownership, searchable inactive status, reactivation, fresh-login rules, revocation, audit events, concurrent administrator actions and rollback. HTTP/component regressions cover client expiry and retained inactive rows. The real two-browser admin scenario exercises Revoke sessions → sign-in → Suspend → Activate → Deactivate → Activate on Chromium mobile/desktop and Firefox mobile. Validation: 668 tests (281 unit/component, 387 API) and all three browser scenarios passed, with no skips. Lint, type checking, formatting and production build passed.

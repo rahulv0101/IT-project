@@ -1,10 +1,14 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 const password = 'EduQuestDemo123!';
-async function login(page, email) {
+async function login(page, email, loginPassword = password) {
+  await page.route(
+    /^https:\/\/(fonts\.googleapis\.com|fonts\.gstatic\.com)\//,
+    (route) => route.abort(),
+  );
   await page.goto('/');
   await page.getByLabel('Email', { exact: true }).fill(email);
-  await page.getByLabel('Password', { exact: true }).fill(password);
+  await page.getByLabel('Password', { exact: true }).fill(loginPassword);
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
   await expect(
     page.getByRole('button', { name: 'Log out', exact: true }),
@@ -15,32 +19,90 @@ test.beforeEach(async ({ page }) => {
     (await page.request.post('/api/v1/__test/reset-auth-state')).status(),
   ).toBe(204);
 });
-test('admin adds and deletes a student through Users', async ({
+test('admin revokes sessions, suspends and deactivates accounts without losing user data', async ({
   page,
+  browser,
 }, info) => {
+  test.setTimeout(120000);
+  page.setDefaultTimeout(15000);
   await login(page, 'demo-admin@example.com');
   await page.getByRole('button', { name: 'Users', exact: true }).click();
   await page.getByRole('button', { name: 'Add user', exact: true }).click();
   const email = `browser-managed-${info.project.name}-${Date.now()}@example.com`;
+  const temporaryPassword = 'TemporarySecure99!';
   await page.getByLabel('First name', { exact: true }).fill('Browser');
   await page.getByLabel('Last name', { exact: true }).fill('Student');
   await page.getByLabel('Email', { exact: true }).fill(email);
-  await page.getByLabel('Temporary password').fill('TemporarySecure99!');
+  await page.getByLabel('Temporary password').fill(temporaryPassword);
   await page
     .getByLabel('Reason', { exact: true })
-    .fill('Browser account validation');
+    .fill('Browser access validation');
   await page.getByRole('button', { name: 'Create user', exact: true }).click();
   await expect(page.getByText(/Browser Student was added/)).toBeVisible();
   await page.getByLabel('Search users').fill(email);
-  await page
-    .getByRole('button', { name: 'Delete Browser Student', exact: true })
-    .click();
-  await page.getByLabel('Confirm email').fill(email);
-  await page.getByLabel('Deletion reason').fill('Browser test cleanup');
-  await page.getByRole('button', { name: 'Delete user', exact: true }).click();
-  await expect(page.getByText(/User deleted. Access/)).toBeVisible();
-  await expect(page.getByText('No users match your search.')).toBeVisible();
-  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  const row = page.getByRole('row').filter({ hasText: email });
+  const context = await browser.newContext({
+    baseURL: 'http://127.0.0.1:5391',
+    viewport: page.viewportSize(),
+  });
+  const student = await context.newPage();
+  try {
+    await login(student, email, temporaryPassword);
+    await row
+      .getByRole('button', { name: 'Revoke sessions', exact: true })
+      .click();
+    await expect(
+      page.getByText(/was signed out of all sessions/),
+    ).toBeVisible();
+    await expect(
+      student.getByRole('heading', { name: 'Welcome back', exact: true }),
+    ).toBeVisible({ timeout: 25000 });
+    await login(student, email, temporaryPassword);
+    await row.getByRole('button', { name: 'Suspend', exact: true }).click();
+    await expect(row.getByText('suspended', { exact: true })).toBeVisible();
+    await student.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect(
+      student.getByRole('heading', { name: 'Welcome back', exact: true }),
+    ).toBeVisible();
+    expect(
+      (
+        await student.request.post('/api/v1/auth/login', {
+          data: { email, password: temporaryPassword },
+        })
+      ).status(),
+    ).toBe(403);
+    await row.getByRole('button', { name: 'Activate', exact: true }).click();
+    await expect(row.getByText('active', { exact: true })).toBeVisible();
+    await login(student, email, temporaryPassword);
+    await row
+      .getByRole('button', { name: 'Deactivate Browser Student', exact: true })
+      .click();
+    await page.getByLabel('Confirm email').fill(email);
+    await page.getByLabel('Deactivation reason').fill('Retain account data');
+    await page
+      .getByRole('button', { name: 'Deactivate account', exact: true })
+      .click();
+    await expect(page.getByText(/Account made inactive/)).toBeVisible();
+    await expect(row.getByText('inactive', { exact: true })).toBeVisible();
+    await student.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect(
+      student.getByRole('heading', { name: 'Welcome back', exact: true }),
+    ).toBeVisible();
+    const blocked = await student.request.post('/api/v1/auth/login', {
+      data: { email, password: temporaryPassword },
+    });
+    expect(blocked.status()).toBe(403);
+    expect((await blocked.json()).error.code).toBe('ACCOUNT_INACTIVE');
+    await row.getByRole('button', { name: 'Activate', exact: true }).click();
+    await expect(row.getByText('active', { exact: true })).toBeVisible();
+    await login(student, email, temporaryPassword);
+    expect(
+      (await (await student.request.get('/api/v1/auth/me')).json()).user.email,
+    ).toBe(email);
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  } finally {
+    await context.close();
+  }
 });
 test('students exchange private messages and invite another student to a study group', async ({
   page,

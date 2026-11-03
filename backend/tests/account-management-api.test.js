@@ -105,19 +105,29 @@ describe('administrator account creation and removal', () => {
       ).status,
     ).toBe(422);
   });
-  it('anonymizes deletion, revokes sessions, audits the action, and prevents reactivation', async () => {
-    const r = await remove(f.member);
-    expect(r.status, JSON.stringify(r.body)).toBe(204);
-    expect((await call(f.member, 'get', '/api/v1/auth/me')).status).toBe(401);
-    const user = (
-      await pool.query(
-        'SELECT email,full_name,account_status FROM users WHERE user_id=$1',
-        [f.member.id],
-      )
+  it('makes an account inactive without changing personal details, credentials or memberships and permits reactivation', async () => {
+    const before = (
+      await pool.query('SELECT * FROM users WHERE user_id=$1', [f.member.id])
     ).rows[0];
-    expect(user.account_status).toBe('deleted');
-    expect(user.full_name).toBe('Deleted user');
-    expect(user.email).toMatch(/@accounts.invalid$/);
+    const memberships = (
+      await pool.query('SELECT * FROM group_members WHERE student_id=$1', [
+        f.member.id,
+      ])
+    ).rows;
+    const r = await remove(f.member);
+    expect(r.status).toBe(204);
+    expect((await call(f.member, 'get', '/api/v1/auth/me')).status).toBe(401);
+    const after = (
+      await pool.query('SELECT * FROM users WHERE user_id=$1', [f.member.id])
+    ).rows[0];
+    expect(after).toEqual({ ...before, account_status: 'inactive' });
+    expect(
+      (
+        await pool.query('SELECT * FROM group_members WHERE student_id=$1', [
+          f.member.id,
+        ])
+      ).rows,
+    ).toEqual(memberships);
     expect(
       (
         await pool.query('SELECT 1 FROM enrollments WHERE student_id=$1', [
@@ -128,34 +138,32 @@ describe('administrator account creation and removal', () => {
     expect(
       (
         await pool.query(
-          "SELECT 1 FROM admin_audit_logs WHERE target_id=$1 AND action='user.deleted'",
+          "SELECT 1 FROM admin_audit_logs WHERE target_id=$1 AND action='user.deactivate'",
           [f.member.id],
         )
       ).rowCount,
     ).toBe(1);
+    const users = await request(app)
+      .get('/api/v1/admin/users')
+      .set('Cookie', admin.cookie)
+      .query({ search: before.email });
+    expect(users.body.data).toHaveLength(1);
+    expect(users.body.data[0].account_status).toBe('inactive');
     expect(
       (
         await call(admin, 'patch', `/api/v1/admin/users/${f.member.id}`, {
           action: 'activate',
-          reason: 'Cannot reactivate deleted user',
+          reason: 'Restore access',
         })
       ).status,
-    ).toBe(404);
-    const users = await request(app)
-      .get('/api/v1/admin/users')
-      .set('Cookie', admin.cookie)
-      .query({ search: user.email });
-    expect(users.body.data).toHaveLength(0);
-  });
-  it('requires lecturer reassignment before deletion and transfers modules atomically', async () => {
-    expect((await remove(f.lecturer)).status).toBe(409);
+    ).toBe(200);
     expect(
-      (
-        await pool.query('SELECT lecturer_id FROM modules WHERE module_id=$1', [
-          f.moduleId,
-        ])
-      ).rows[0].lecturer_id,
-    ).toBe(f.lecturer.id);
+      (await pool.query('SELECT * FROM users WHERE user_id=$1', [f.member.id]))
+        .rows[0],
+    ).toEqual(before);
+    expect((await call(f.member, 'get', '/api/v1/auth/me')).status).toBe(401);
+  });
+  it('retains lecturer ownership without requiring or applying reassignment', async () => {
     const replacement = await call(
       admin,
       'post',
@@ -175,38 +183,137 @@ describe('administrator account creation and removal', () => {
           f.moduleId,
         ])
       ).rows[0].lecturer_id,
-    ).toBe(replacement.body.user.user_id);
+    ).toBe(f.lecturer.id);
   });
-  it('hands group leadership to an active member when deleting the original leader', async () => {
-    expect((await remove(f.leader)).status).toBe(204);
-    const leader = (
-      await pool.query(
-        "SELECT student_id FROM group_leaders WHERE group_id=$1 AND role='leader'",
-        [f.groupId],
-      )
-    ).rows[0];
-    expect([f.member.id, f.coLeader.id]).toContain(leader.student_id);
-    expect(
-      (
+  it('preserves group leadership, memberships and visibility when members become inactive', async () => {
+    const before = {
+      leaders: (
         await pool.query(
-          'SELECT 1 FROM group_members WHERE group_id=$1 AND student_id=$2',
-          [f.groupId, f.leader.id],
-        )
-      ).rowCount,
-    ).toBe(0);
-  });
-  it('makes a group private when its last active member is deleted', async () => {
-    await remove(f.member);
-    await remove(f.coLeader);
-    expect((await remove(f.leader)).status).toBe(204);
-    expect(
-      (
-        await pool.query(
-          'SELECT visibility FROM study_groups WHERE group_id=$1',
+          'SELECT * FROM group_leaders WHERE group_id=$1 ORDER BY student_id',
           [f.groupId],
         )
-      ).rows[0].visibility,
-    ).toBe('private');
+      ).rows,
+      members: (
+        await pool.query(
+          'SELECT * FROM group_members WHERE group_id=$1 ORDER BY student_id',
+          [f.groupId],
+        )
+      ).rows,
+      group: (
+        await pool.query('SELECT * FROM study_groups WHERE group_id=$1', [
+          f.groupId,
+        ])
+      ).rows[0],
+    };
+    for (const actor of [f.member, f.coLeader, f.leader])
+      expect((await remove(actor)).status).toBe(204);
+    expect(
+      (
+        await pool.query(
+          'SELECT * FROM group_leaders WHERE group_id=$1 ORDER BY student_id',
+          [f.groupId],
+        )
+      ).rows,
+    ).toEqual(before.leaders);
+    expect(
+      (
+        await pool.query(
+          'SELECT * FROM group_members WHERE group_id=$1 ORDER BY student_id',
+          [f.groupId],
+        )
+      ).rows,
+    ).toEqual(before.members);
+    expect(
+      (
+        await pool.query('SELECT * FROM study_groups WHERE group_id=$1', [
+          f.groupId,
+        ])
+      ).rows[0],
+    ).toEqual(before.group);
+  });
+  it('revokes sessions without blocking fresh login, suspends and reactivates, then deactivates with all data intact', async () => {
+    const data = body();
+    const created = await call(admin, 'post', '/api/v1/admin/users', data);
+    const id = created.body.user.user_id;
+    const login = () =>
+      request(app)
+        .post('/api/v1/auth/login')
+        .send({ email: data.email, password: data.temporaryPassword });
+    const session = await login();
+    const cookie = session.headers['set-cookie'][0].split(';')[0];
+    expect(
+      (
+        await call(admin, 'patch', `/api/v1/admin/users/${id}`, {
+          action: 'revoke_sessions',
+          reason: 'Security review',
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (await request(app).get('/api/v1/auth/me').set('Cookie', cookie)).status,
+    ).toBe(401);
+    expect((await login()).status).toBe(200);
+    expect(
+      (
+        await call(admin, 'patch', `/api/v1/admin/users/${id}`, {
+          action: 'suspend',
+          reason: 'Temporary suspension',
+        })
+      ).status,
+    ).toBe(200);
+    expect((await login()).status).toBe(403);
+    expect(
+      (
+        await call(admin, 'patch', `/api/v1/admin/users/${id}`, {
+          action: 'activate',
+          reason: 'Restore access',
+        })
+      ).status,
+    ).toBe(200);
+    expect((await login()).status).toBe(200);
+    expect(
+      (
+        await call(admin, 'patch', `/api/v1/admin/users/${id}`, {
+          action: 'deactivate',
+          reason: 'Retain historical data',
+        })
+      ).status,
+    ).toBe(200);
+    const blocked = await login();
+    expect(blocked.status).toBe(403);
+    expect(blocked.body.error.code).toBe('ACCOUNT_INACTIVE');
+    expect(
+      (
+        await call(admin, 'patch', `/api/v1/admin/users/${id}`, {
+          action: 'activate',
+          reason: 'Restore account',
+        })
+      ).status,
+    ).toBe(200);
+    expect((await login()).status).toBe(200);
+  });
+  it('rolls back deactivation when session revocation fails', async () => {
+    await pool.query(
+      "CREATE FUNCTION test_deactivate_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test revocation failure'; END $$",
+    );
+    await pool.query(
+      'CREATE TRIGGER test_deactivate_failure BEFORE UPDATE ON sessions FOR EACH ROW EXECUTE FUNCTION test_deactivate_failure()',
+    );
+    try {
+      expect((await remove(f.member)).status).toBe(500);
+      expect(
+        (
+          await pool.query(
+            'SELECT account_status FROM users WHERE user_id=$1',
+            [f.member.id],
+          )
+        ).rows[0].account_status,
+      ).toBe('active');
+      expect((await call(f.member, 'get', '/api/v1/auth/me')).status).toBe(200);
+    } finally {
+      await pool.query('DROP TRIGGER test_deactivate_failure ON sessions');
+      await pool.query('DROP FUNCTION test_deactivate_failure()');
+    }
   });
   it('serializes competing administrator suspensions and rechecks the acting administrator', async () => {
     const other = await administrator();

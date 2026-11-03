@@ -39,8 +39,6 @@ export function AdminUsers({ currentUserId }) {
   const [target, setTarget] = useState(null);
   const [confirmation, setConfirmation] = useState('');
   const [deleteReason, setDeleteReason] = useState('');
-  const [replacement, setReplacement] = useState('');
-  const [lecturers, setLecturers] = useState([]);
   useEffect(() => {
     let active = true;
     const timer = setTimeout(
@@ -78,25 +76,6 @@ export function AdminUsers({ currentUserId }) {
       clearTimeout(timer);
     };
   }, [search, page, refresh]);
-  useEffect(() => {
-    let active = true;
-    if (target?.role === 'lecturer')
-      api('/users?role=lecturer&pageSize=100')
-        .then(
-          (b) =>
-            active &&
-            setLecturers(
-              (b.data || []).filter(
-                (u) =>
-                  u.user_id !== target.user_id && u.account_status === 'active',
-              ),
-            ),
-        )
-        .catch((e) => active && setError(e.message));
-    return () => {
-      active = false;
-    };
-  }, [target]);
   const change = (key, value) =>
     setForm((current) => ({ ...current, [key]: value }));
   const create = async (event) => {
@@ -141,7 +120,13 @@ export function AdminUsers({ currentUserId }) {
               : 'Account administration',
         }),
       });
-      setMessage('User updated.');
+      setMessage(
+        kind === 'revoke_sessions'
+          ? `${user.full_name} was signed out of all sessions. They can sign in again.`
+          : kind === 'suspend'
+            ? `${user.full_name} is suspended. Sign-in is blocked and existing sessions were revoked.`
+            : `${user.full_name} is active and can sign in again.`,
+      );
       setRefresh((v) => v + 1);
     } catch (e) {
       setError(e.message);
@@ -161,11 +146,10 @@ export function AdminUsers({ currentUserId }) {
         body: JSON.stringify({
           confirmationEmail: confirmation,
           reason: deleteReason,
-          ...(replacement ? { replacementLecturerId: replacement } : {}),
         }),
       });
       setMessage(
-        'User deleted. Access and personal details were removed; academic records were retained.',
+        'Account made inactive. Sign-in is blocked; the user’s details and all linked data are retained.',
       );
       setTarget(null);
       setRefresh((v) => v + 1);
@@ -343,7 +327,7 @@ export function AdminUsers({ currentUserId }) {
                     <td className="admin-actions">
                       <button
                         className="secondary"
-                        disabled={busy}
+                        disabled={busy || user.user_id === currentUserId}
                         onClick={() =>
                           action(
                             user,
@@ -366,17 +350,20 @@ export function AdminUsers({ currentUserId }) {
                       </button>
                       <button
                         className="danger"
-                        disabled={busy || user.user_id === currentUserId}
-                        aria-label={`Delete ${user.full_name}`}
+                        disabled={
+                          busy ||
+                          user.user_id === currentUserId ||
+                          user.account_status === 'inactive'
+                        }
+                        aria-label={`Deactivate ${user.full_name}`}
                         onClick={() => {
                           setTarget(user);
                           setConfirmation('');
                           setDeleteReason('');
-                          setReplacement('');
                           setError('');
                         }}
                       >
-                        Delete
+                        Deactivate
                       </button>
                     </td>
                   </tr>
@@ -412,29 +399,14 @@ export function AdminUsers({ currentUserId }) {
         <form
           className="card delete-confirmation"
           onSubmit={remove}
-          aria-label="Confirm user deletion"
+          aria-label="Confirm account deactivation"
         >
-          <h3>Delete {target.full_name}?</h3>
+          <h3>Deactivate {target.full_name}?</h3>
           <p>
-            This removes sign-in access and personal details. Existing quiz
-            results and shared academic records are retained.
+            This makes the account inactive and signs the user out. Their
+            personal details, results, memberships and other data stay on the
+            system. You can activate the account again later.
           </p>
-          {target.role === 'lecturer' && (
-            <label>
-              Transfer modules to
-              <select
-                value={replacement}
-                onChange={(e) => setReplacement(e.target.value)}
-              >
-                <option value="">Choose if this lecturer owns modules</option>
-                {lecturers.map((u) => (
-                  <option value={u.user_id} key={u.user_id}>
-                    {u.full_name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
           <label>
             Confirm email
             <input
@@ -446,7 +418,7 @@ export function AdminUsers({ currentUserId }) {
             />
           </label>
           <label>
-            Deletion reason
+            Deactivation reason
             <textarea
               value={deleteReason}
               onChange={(e) => setDeleteReason(e.target.value)}
@@ -463,14 +435,14 @@ export function AdminUsers({ currentUserId }) {
                 confirmation.trim().toLowerCase() !== target.email.toLowerCase()
               }
             >
-              {busy ? 'Deleting…' : 'Delete user'}
+              {busy ? 'Deactivating…' : 'Deactivate account'}
             </button>
             <button
               type="button"
               disabled={busy}
               onClick={() => setTarget(null)}
             >
-              Cancel deletion
+              Cancel deactivation
             </button>
           </div>
         </form>

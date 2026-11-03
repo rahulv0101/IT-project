@@ -1,5 +1,4 @@
 // @ts-nocheck - Express/SQL inputs are validated with Zod.
-import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import {
@@ -151,14 +150,10 @@ export function registerAccountManagement({
         return error(
           res,
           409,
-          'SELF_DELETE',
-          'You cannot delete your own account.',
+          'SELF_DEACTIVATE',
+          'You cannot deactivate your own account.',
           requestId(req),
         );
-      const disabledHash = await bcrypt.hash(
-        crypto.randomBytes(32).toString('hex'),
-        10,
-      );
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
@@ -194,7 +189,7 @@ export function registerAccountManagement({
             res,
             422,
             'CONFIRMATION_MISMATCH',
-            'Type the user’s email address to confirm deletion.',
+            'Type the user’s email address to confirm deactivation.',
             requestId(req),
           );
         }
@@ -212,103 +207,29 @@ export function registerAccountManagement({
             res,
             409,
             'LAST_ADMIN',
-            'The final active administrator cannot be deleted.',
+            'The final active administrator cannot be deactivated.',
             requestId(req),
           );
         }
-        if (target.role === 'lecturer') {
-          const owned = await client.query(
-            'SELECT module_id FROM modules WHERE lecturer_id=$1 FOR UPDATE',
-            [userId],
-          );
-          if (owned.rowCount) {
-            const replacement =
-              data.replacementLecturerId &&
-              (
-                await client.query(
-                  "SELECT user_id FROM users WHERE user_id=$1 AND role='lecturer' AND account_status='active' AND user_id<>$2",
-                  [data.replacementLecturerId, userId],
-                )
-              ).rows[0];
-            if (!replacement) {
-              await client.query('ROLLBACK');
-              return error(
-                res,
-                409,
-                'MODULE_REASSIGNMENT_REQUIRED',
-                'Select another active lecturer to take over this user’s modules.',
-                requestId(req),
-              );
-            }
-            await client.query(
-              'UPDATE modules SET lecturer_id=$2 WHERE lecturer_id=$1',
-              [userId, replacement.user_id],
-            );
-          }
-        }
-        // Retain historical group/session references, transferring active leadership.
-        const groups = await client.query(
-          "SELECT group_id FROM group_leaders WHERE student_id=$1 AND role='leader' ORDER BY group_id FOR UPDATE",
-          [userId],
-        );
-        for (const { group_id } of groups.rows) {
-          const successor = (
-            await client.query(
-              "SELECT gm.student_id FROM group_members gm JOIN users u ON u.user_id=gm.student_id WHERE gm.group_id=$1 AND gm.student_id<>$2 AND u.account_status='active' ORDER BY gm.joined_date,gm.student_id LIMIT 1",
-              [group_id, userId],
-            )
-          ).rows[0];
-          if (successor) {
-            await client.query(
-              "DELETE FROM group_leaders WHERE group_id=$1 AND student_id=$2 AND role='co-leader'",
-              [group_id, successor.student_id],
-            );
-            await client.query(
-              "UPDATE group_leaders SET student_id=$3 WHERE group_id=$1 AND student_id=$2 AND role='leader'",
-              [group_id, userId, successor.student_id],
-            );
-          } else
-            await client.query(
-              "UPDATE study_groups SET visibility='private' WHERE group_id=$1",
-              [group_id],
-            );
-        }
         await client.query(
-          "DELETE FROM group_leaders WHERE student_id=$1 AND role='co-leader'",
-          [userId],
-        );
-        await client.query('DELETE FROM group_members WHERE student_id=$1', [
-          userId,
-        ]);
-        await client.query(
-          "UPDATE group_invitations SET status='revoked',responded_at=now() WHERE status='pending' AND (inviter_id=$1 OR invitee_id=$1)",
+          "UPDATE users SET account_status='inactive' WHERE user_id=$1",
           [userId],
         );
         await client.query(
           'UPDATE sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1',
           [userId],
         );
-        for (const table of [
-          'email_verification_tokens',
-          'email_verification_codes',
-          'mfa_recovery_codes',
-          'mfa_credentials',
-          'mfa_login_challenges',
-          'user_preferred_languages',
-        ])
-          await client.query(`DELETE FROM ${table} WHERE user_id=$1`, [userId]);
-        await client.query(
-          `UPDATE users SET email=$2,password_hash=$3,full_name='Deleted user',first_name='Deleted',last_name='User',
-        pending_email=NULL,email_verified_at=NULL,account_status='deleted',requires_password_reset=false WHERE user_id=$1`,
-          [userId, `deleted-${userId}@accounts.invalid`, disabledHash],
-        );
         await audit(
           req,
-          'user.deleted',
+          'user.deactivate',
           'user',
           userId,
           data.reason,
-          { previousRole: target.role, academicRecordsRetained: true },
+          {
+            previousRole: target.role,
+            previousStatus: target.account_status,
+            dataRetained: true,
+          },
           client,
         );
         await client.query('COMMIT');

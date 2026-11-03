@@ -25,7 +25,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
-it('admin creates a user and confirms deletion with an email and reason', async () => {
+it('admin creates a user and confirms deactivation with an email and reason', async () => {
   let present = false;
   const user = {
     user_id: 'managed-1',
@@ -40,7 +40,7 @@ it('admin creates a user and confirms deletion with an email and reason', async 
       return response({ user }, 201);
     }
     if (opts.method === 'DELETE') {
-      present = false;
+      user.account_status = 'inactive';
       return response(null, 204);
     }
     return response({
@@ -61,16 +61,22 @@ it('admin creates a user and confirms deletion with an email and reason', async 
   ])
     fireEvent.change(screen.getByLabelText(label), { target: { value } });
   fireEvent.click(screen.getByRole('button', { name: 'Create user' }));
-  await screen.findByRole('button', { name: 'Delete New Person' });
-  fireEvent.click(screen.getByRole('button', { name: 'Delete New Person' }));
+  await screen.findByRole('button', { name: 'Deactivate New Person' });
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Deactivate New Person' }),
+  );
   fireEvent.change(screen.getByLabelText('Confirm email'), {
     target: { value: user.email },
   });
-  fireEvent.change(screen.getByLabelText('Deletion reason'), {
+  fireEvent.change(screen.getByLabelText('Deactivation reason'), {
     target: { value: 'Disposable test cleanup' },
   });
-  fireEvent.submit(screen.getByRole('form', { name: 'Confirm user deletion' }));
-  await screen.findByText(/User deleted. Access/);
+  fireEvent.submit(
+    screen.getByRole('form', { name: 'Confirm account deactivation' }),
+  );
+  await screen.findByText(/Account made inactive/);
+  expect(await screen.findByText('inactive')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Activate' })).toBeTruthy();
   const deletion = fetch.mock.calls.find(([, o]) => o.method === 'DELETE');
   expect(JSON.parse(deletion[1].body)).toEqual({
     confirmationEmail: user.email,
