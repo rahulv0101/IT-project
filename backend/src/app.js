@@ -17,7 +17,6 @@ import cookieParser from 'cookie-parser';
 import bcrypt from 'bcryptjs';
 import rateLimit from 'express-rate-limit';
 import multer from 'multer';
-import QRCode from 'qrcode';
 import { z } from 'zod';
 import { registerStudentNetworkRoutes } from './groups/student-network.js';
 import { sendVerificationEmail } from './email.js';
@@ -65,16 +64,6 @@ import { recommendationReason, scoreGroup } from './groups/recommendations.js';
 import { registerSessionRoutes } from './groups/sessions.js';
 import { registerMessagingRoutes } from './groups/messaging.js';
 import { registerAdminRoutes } from './admin/routes.js';
-import {
-  codesMatch,
-  decryptSecret,
-  encryptSecret,
-  hashSecret,
-  randomRecoveryCode,
-  randomTotpSecret,
-  totpAt,
-  validTotp,
-} from './mfa.js';
 
 const app = express();
 const cookieSecure =
@@ -141,7 +130,6 @@ app.use(
 if (process.env.E2E_TEST_MODE === '1')
   app.post('/api/v1/__test/reset-auth-state', async (req, res) => {
     await authLimiter.resetKey(req.ip);
-    mfaFailures.clear();
     res.status(204).end();
   });
 
@@ -755,199 +743,24 @@ app.get('/api/v1/auth/verify-email', async (req, res, next) => {
   }
 });
 
-const mfaCodeSchema = z.string().regex(/^\d{6}$/);
-const mfaFactorSchema = z
-  .object({
-    code: mfaCodeSchema.optional(),
-    recoveryCode: z.string().trim().min(8).max(32).optional(),
-  })
-  .strict()
-  .refine(
-    (value) => Boolean(value.code || value.recoveryCode),
-    'A code is required.',
-  );
-const mfaFailures = new Map();
-const mfaFailureWindow = 15 * 60 * 1000;
-const recordMfaFailure = (userId) => {
-  const now = Date.now();
-  const current = (mfaFailures.get(userId) || []).filter(
-    (time) => now - time < mfaFailureWindow,
-  );
-  current.push(now);
-  mfaFailures.set(userId, current);
-  return current.length >= 10;
-};
-const mfaLocked = (userId) => {
-  const now = Date.now();
-  const current = (mfaFailures.get(userId) || []).filter(
-    (time) => now - time < mfaFailureWindow,
-  );
-  mfaFailures.set(userId, current);
-  return (
-    current.length >= 10 && now - current[current.length - 10] < 15 * 60 * 1000
-  );
-};
-const friendlyMfaError = (res, req) =>
+// Former MFA URLs are retired; none can issue sessions or enable MFA.
+const mfaRemoved = (req, res) =>
   error(
     res,
-    401,
-    'MFA_FAILED',
-    'The verification code is invalid or expired.',
+    410,
+    'MFA_REMOVED',
+    'Authenticator sign-in has been removed. Sign in again with your email and password.',
     requestId(req),
   );
-const verifyMfaFactor = async (userId, factor) => {
-  const credential = await pool.query(
-    'SELECT encrypted_secret,last_used_totp_step FROM mfa_credentials WHERE user_id=$1 AND enabled=true',
-    [userId],
-  );
-  if (!credential.rowCount) return false;
-  if (factor.code) {
-    const secret = decryptSecret(credential.rows[0].encrypted_secret);
-    const now = Date.now();
-    const currentStep = Math.floor(now / 30_000);
-    const matchedStep = [-1, 0, 1].find((offset) =>
-      codesMatch(factor.code, totpAt(secret, now + offset * 30_000)),
-    );
-    if (matchedStep === undefined) return false;
-    const step = currentStep + matchedStep;
-    const accepted = await pool.query(
-      'UPDATE mfa_credentials SET last_used_totp_step=$1 WHERE user_id=$2 AND (last_used_totp_step IS NULL OR last_used_totp_step<$1) RETURNING user_id',
-      [step, userId],
-    );
-    return accepted.rowCount === 1;
-  }
-  const used = await pool.query(
-    'UPDATE mfa_recovery_codes SET used_at=now() WHERE user_id=$1 AND code_hash=$2 AND used_at IS NULL RETURNING recovery_code_id',
-    [userId, hashSecret(factor.recoveryCode)],
-  );
-  return used.rowCount === 1;
-};
-const generateRecoveryCodes = async (userId) => {
-  const codes = Array.from({ length: 10 }, randomRecoveryCode);
-  await pool.query('DELETE FROM mfa_recovery_codes WHERE user_id=$1', [userId]);
-  for (const code of codes)
-    await pool.query(
-      'INSERT INTO mfa_recovery_codes(user_id,code_hash) VALUES($1,$2)',
-      [userId, hashSecret(code)],
-    );
-  return codes;
-};
+for (const endpoint of [
+  'enrol',
+  'confirm',
+  'disable',
+  'recovery-codes/regenerate',
+])
+  app.post(`/api/v1/mfa/${endpoint}`, requireAuth, mfaRemoved);
+app.post('/api/v1/auth/login/mfa', mfaRemoved);
 
-// ── Multi-factor authentication enrolment and recovery ─────────────────────
-app.post('/api/v1/mfa/enrol', requireAuth, async (req, res, next) => {
-  try {
-    if (!req.user.emailVerifiedAt)
-      return error(
-        res,
-        403,
-        'EMAIL_NOT_VERIFIED',
-        'Verify your email before enabling MFA.',
-        requestId(req),
-      );
-    if (!parse(z.object({}).strict(), req.body || {}, req, res)) return;
-    const existing = await pool.query(
-      'SELECT enabled,confirmed_at,encrypted_secret FROM mfa_credentials WHERE user_id=$1',
-      [req.user.userId],
-    );
-    if (existing.rowCount && existing.rows[0].enabled)
-      return error(
-        res,
-        409,
-        'MFA_EXISTS',
-        'MFA enrolment already exists.',
-        requestId(req),
-      );
-    const resuming =
-      existing.rowCount &&
-      !existing.rows[0].enabled &&
-      !existing.rows[0].confirmed_at;
-    const secret = resuming
-      ? decryptSecret(existing.rows[0].encrypted_secret)
-      : randomTotpSecret();
-    if (existing.rowCount && !resuming)
-      await pool.query(
-        'UPDATE mfa_credentials SET encrypted_secret=$2,enabled=false,confirmed_at=NULL,last_used_totp_step=NULL WHERE user_id=$1',
-        [req.user.userId, encryptSecret(secret)],
-      );
-    else if (!existing.rowCount)
-      await pool.query(
-        'INSERT INTO mfa_credentials(user_id,encrypted_secret) VALUES($1,$2)',
-        [req.user.userId, encryptSecret(secret)],
-      );
-    const uri = `otpauth://totp/EduQuest:${encodeURIComponent(req.user.email)}?secret=${secret}&issuer=EduQuest&algorithm=SHA1&digits=6&period=30`;
-    const qrCode = await QRCode.toDataURL(uri, { errorCorrectionLevel: 'M' });
-    res.json({ otpauthUri: uri, qrCode, setupKey: secret });
-  } catch (e) {
-    next(e);
-  }
-});
-app.post('/api/v1/mfa/confirm', requireAuth, async (req, res, next) => {
-  try {
-    const data = parse(
-      z.object({ code: mfaCodeSchema }).strict(),
-      req.body,
-      req,
-      res,
-      422,
-    );
-    if (!data) return;
-    const row = await pool.query(
-      'SELECT encrypted_secret,enabled FROM mfa_credentials WHERE user_id=$1',
-      [req.user.userId],
-    );
-    if (!row.rowCount || row.rows[0].enabled)
-      return error(
-        res,
-        409,
-        'MFA_NOT_PENDING',
-        'MFA enrolment is not pending.',
-        requestId(req),
-      );
-    if (!validTotp(decryptSecret(row.rows[0].encrypted_secret), data.code))
-      return friendlyMfaError(res, req);
-    await pool.query(
-      'UPDATE mfa_credentials SET enabled=true,confirmed_at=now() WHERE user_id=$1',
-      [req.user.userId],
-    );
-    res.json({
-      enabled: true,
-      recoveryCodes: await generateRecoveryCodes(req.user.userId),
-    });
-  } catch (e) {
-    next(e);
-  }
-});
-app.post('/api/v1/mfa/disable', requireAuth, async (req, res, next) => {
-  try {
-    const data = parse(
-      z
-        .object({ password: z.string().min(1), ...mfaFactorSchema.shape })
-        .strict(),
-      req.body,
-      req,
-      res,
-      422,
-    );
-    if (!data) return;
-    const user = (
-      await pool.query('SELECT password_hash FROM users WHERE user_id=$1', [
-        req.user.userId,
-      ])
-    ).rows[0];
-    if (
-      !(await bcrypt.compare(data.password, user.password_hash)) ||
-      !(await verifyMfaFactor(req.user.userId, data))
-    )
-      return friendlyMfaError(res, req);
-    await pool.query(
-      'UPDATE mfa_credentials SET enabled=false WHERE user_id=$1',
-      [req.user.userId],
-    );
-    res.json({ enabled: false });
-  } catch (e) {
-    next(e);
-  }
-});
 const groupCreateSchema = groupDetailsSchema.extend({
   moduleId: z.string().uuid(),
 });
@@ -1473,38 +1286,7 @@ app.post(
   },
 );
 
-app.post(
-  '/api/v1/mfa/recovery-codes/regenerate',
-  requireAuth,
-  async (req, res, next) => {
-    try {
-      const data = parse(
-        z
-          .object({ password: z.string().min(1), ...mfaFactorSchema.shape })
-          .strict(),
-        req.body,
-        req,
-        res,
-        422,
-      );
-      if (!data) return;
-      const user = (
-        await pool.query('SELECT password_hash FROM users WHERE user_id=$1', [
-          req.user.userId,
-        ])
-      ).rows[0];
-      if (
-        !(await bcrypt.compare(data.password, user.password_hash)) ||
-        !(await verifyMfaFactor(req.user.userId, data))
-      )
-        return friendlyMfaError(res, req);
-      res.json({ recoveryCodes: await generateRecoveryCodes(req.user.userId) });
-    } catch (e) {
-      next(e);
-    }
-  },
-);
-// ── Login, MFA challenge completion, sessions, and logout ─────────────────
+// ── Password sign-in, sessions, and logout ───────────────────────────────
 app.post('/api/v1/auth/login', async (req, res, next) => {
   try {
     const data = parse(
@@ -1536,32 +1318,6 @@ app.post('/api/v1/auth/login', async (req, res, next) => {
         'This account is unavailable. Please contact an administrator.',
         requestId(req),
       );
-    if (
-      await pool
-        .query(
-          'SELECT 1 FROM mfa_credentials WHERE user_id=$1 AND enabled=true',
-          [result.rows[0].user_id],
-        )
-        .then((value) => value.rowCount)
-    ) {
-      if (mfaLocked(result.rows[0].user_id))
-        return error(
-          res,
-          429,
-          'MFA_LOCKED',
-          'MFA verification is temporarily locked. Please try again later.',
-          requestId(req),
-        );
-      const challenge = crypto.randomUUID();
-      const challengeRow = await pool.query(
-        `INSERT INTO mfa_login_challenges(challenge_id,user_id,token_hash,expires_at) VALUES($1,$2,$3,now()+interval '5 minutes') RETURNING challenge_id`,
-        [challenge, result.rows[0].user_id, hashSecret(challenge)],
-      );
-      return res.status(202).json({
-        mfaRequired: true,
-        challengeId: challengeRow.rows[0].challenge_id,
-      });
-    }
     await issueSession(result.rows[0].user_id, res);
     res.json({
       user: {
@@ -1576,66 +1332,6 @@ app.post('/api/v1/auth/login', async (req, res, next) => {
         email: result.rows[0].email,
       },
     });
-  } catch (e) {
-    next(e);
-  }
-});
-app.post('/api/v1/auth/login/mfa', async (req, res, next) => {
-  try {
-    const data = parse(
-      z
-        .object({ challengeId: z.string().uuid(), ...mfaFactorSchema.shape })
-        .strict(),
-      req.body,
-      req,
-      res,
-      422,
-    );
-    if (!data) return;
-    const challenge = await pool.query(
-      `SELECT challenge_id,user_id,attempts FROM mfa_login_challenges WHERE challenge_id=$1 AND token_hash=$2 AND used_at IS NULL AND expires_at>now()`,
-      [data.challengeId, hashSecret(data.challengeId)],
-    );
-    // The challenge ID is intentionally not the bearer token; the server accepts only its stored hash.
-    if (!challenge.rowCount) return friendlyMfaError(res, req);
-    const userId = challenge.rows[0].user_id;
-    if (challenge.rows[0].attempts >= 5 || mfaLocked(userId))
-      return error(
-        res,
-        429,
-        'MFA_LOCKED',
-        'MFA verification is temporarily locked. Please try again later.',
-        requestId(req),
-      );
-    const valid = await verifyMfaFactor(userId, data);
-    if (!valid) {
-      await pool.query(
-        'UPDATE mfa_login_challenges SET attempts=attempts+1 WHERE challenge_id=$1',
-        [data.challengeId],
-      );
-      const locked = recordMfaFailure(userId);
-      return locked || challenge.rows[0].attempts + 1 >= 5
-        ? error(
-            res,
-            429,
-            'MFA_LOCKED',
-            'MFA verification is temporarily locked. Please try again later.',
-            requestId(req),
-          )
-        : friendlyMfaError(res, req);
-    }
-    await pool.query(
-      'UPDATE mfa_login_challenges SET used_at=now() WHERE challenge_id=$1',
-      [data.challengeId],
-    );
-    await issueSession(userId, res);
-    const user = (
-      await pool.query(
-        'SELECT user_id,role,full_name,first_name,last_name,student_type,email,email_verified_at FROM users WHERE user_id=$1',
-        [userId],
-      )
-    ).rows[0];
-    res.json({ user });
   } catch (e) {
     next(e);
   }
@@ -1718,7 +1414,7 @@ const profileUser = async (userId) => {
     `SELECT u.user_id,u.role,u.full_name,u.first_name,u.last_name,u.student_type,u.student_year,
             u.email,u.email_verified_at,u.pending_email,
             COALESCE(json_agg(pl.name ORDER BY pl.name) FILTER (WHERE pl.name IS NOT NULL), '[]') AS preferred_languages,
-            EXISTS(SELECT 1 FROM mfa_credentials mc WHERE mc.user_id=u.user_id AND mc.enabled) AS mfa_enabled
+            false AS mfa_enabled
        FROM users u
        LEFT JOIN user_preferred_languages upl ON upl.user_id=u.user_id
        LEFT JOIN programming_languages pl ON pl.language_id=upl.language_id

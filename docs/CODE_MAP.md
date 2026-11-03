@@ -33,21 +33,21 @@ Backend -> ai_generation_jobs -> ai-worker.js
 
 ## Backend
 
-| Feature                                      | Main implementation                                                              | Tests                                                            |
-| -------------------------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| HTTP setup, middleware, central errors       | `backend/src/app.js`                                                             | `backend/tests/api.test.js`                                      |
-| Registration, login, sessions, profiles, MFA | `backend/src/app.js`, `backend/src/validation/identity.js`, `backend/src/mfa.js` | `identity-api.test.js`, `profile-api.test.js`, `mfa-api.test.js` |
-| Admin controls and audit trail               | `backend/src/admin/routes.js`                                                    | `admin-api.test.js`, `authorization-matrix.test.js`              |
-| Modules and resources                        | `backend/src/app.js`                                                             | `module-resource-catalogue-api.test.js`                          |
-| Study groups and recommendations             | `backend/src/groups/recommendations.js`                                          | `study-groups-api.test.js`                                       |
-| Group sessions and calendar                  | `backend/src/groups/sessions.js` and session routes in `app.js`                  | `group-sessions-api.test.js`                                     |
-| Group chat and moderation                    | `backend/src/groups/messaging.js` and messaging routes in `app.js`               | `group-messaging-api.test.js`                                    |
-| Quiz authoring and validation                | `backend/src/quizzes/validation.js`, quiz section of `app.js`                    | `api.test.js`, `validation.test.js`                              |
-| Attempts and scoring                         | attempt section of `backend/src/app.js`                                          | `api.test.js`                                                    |
-| Leaderboard and analytics                    | reporting section of `backend/src/app.js`                                        | `api.test.js`                                                    |
-| Profanity boundary                           | `backend/src/profanity/`                                                         | `profanity.test.js` and API tests                                |
-| Practice Labs                                | `backend/src/labs/`, labs section of `app.js`                                    | `labs-api.test.js`, formula/scenario tests                       |
-| Route authorization inventory                | `backend/src/authorization-matrix.js`                                            | `authorization-matrix.test.js`                                   |
+| Feature                                             | Main implementation                                                | Tests                                                            |
+| --------------------------------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------- |
+| HTTP setup, middleware, central errors              | `backend/src/app.js`                                               | `backend/tests/api.test.js`                                      |
+| Registration, password login, sessions and profiles | `backend/src/app.js`, `backend/src/validation/identity.js`         | `identity-api.test.js`, `profile-api.test.js`, `mfa-api.test.js` |
+| Admin controls and audit trail                      | `backend/src/admin/routes.js`                                      | `admin-api.test.js`, `authorization-matrix.test.js`              |
+| Modules and resources                               | `backend/src/app.js`                                               | `module-resource-catalogue-api.test.js`                          |
+| Study groups and recommendations                    | `backend/src/groups/recommendations.js`                            | `study-groups-api.test.js`                                       |
+| Group sessions and calendar                         | `backend/src/groups/sessions.js` and session routes in `app.js`    | `group-sessions-api.test.js`                                     |
+| Group chat and moderation                           | `backend/src/groups/messaging.js` and messaging routes in `app.js` | `group-messaging-api.test.js`                                    |
+| Quiz authoring and validation                       | `backend/src/quizzes/validation.js`, quiz section of `app.js`      | `api.test.js`, `validation.test.js`                              |
+| Attempts and scoring                                | attempt section of `backend/src/app.js`                            | `api.test.js`                                                    |
+| Leaderboard and analytics                           | reporting section of `backend/src/app.js`                          | `api.test.js`                                                    |
+| Profanity boundary                                  | `backend/src/profanity/`                                           | `profanity.test.js` and API tests                                |
+| Practice Labs                                       | `backend/src/labs/`, labs section of `app.js`                      | `labs-api.test.js`, formula/scenario tests                       |
+| Route authorization inventory                       | `backend/src/authorization-matrix.js`                              | `authorization-matrix.test.js`                                   |
 
 ## Games
 

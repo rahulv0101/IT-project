@@ -1238,22 +1238,22 @@ async function assertRoute(route, [template, successRole]) {
     route === 'POST /api/v1/auth/login/mfa' ||
     route.startsWith('POST /api/v1/mfa/')
   ) {
-    const unauthenticated = await send(request(app), method, path, body);
-    expect([401, 422], `${route} unauthenticated`).toContain(
-      unauthenticated.status,
-    );
-    const wrongShape = await send(
-      successRole ? await login(successRole) : request(app),
-      method,
-      path,
-      { unknownField: true },
-    );
-    expect([400, 401, 409, 422], `${route} invalid`).toContain(
-      wrongShape.status,
-    );
-    expect(JSON.stringify(wrongShape.body)).not.toMatch(
-      /secret|recovery|token|hash/i,
-    );
+    const anonymous = await send(request(app), method, path, body);
+    expect(anonymous.status).toBe(isPublic ? 410 : 401);
+    if (!isPublic)
+      expect(
+        (await sendWithCookie(method, path, await revokedCookie(), body))
+          .status,
+      ).toBe(401);
+    for (const role of ['student', 'lecturer', 'admin']) {
+      const response = await send(await login(role), method, path, body);
+      expect(response.status).toBe(410);
+      expect(response.body.error.code).toBe('MFA_REMOVED');
+      expect(response.headers['set-cookie']).toBeUndefined();
+      expect(JSON.stringify(response.body)).not.toMatch(
+        /setupKey|encrypted_secret|recoveryCodes|token_hash/,
+      );
+    }
     return;
   }
   if (!isPublic) {

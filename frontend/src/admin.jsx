@@ -1,7 +1,6 @@
 import { appFetch } from './http.js';
 import React, { useEffect, useState } from 'react';
 import { AdminUsers } from './admin-users.jsx';
-import { AdminAccessSetup } from './admin-security.jsx';
 
 /** Read-only summaries and audited platform controls for administrators. */
 
@@ -130,9 +129,6 @@ export function AdminPage({ user }) {
           <Metric label="Open reports" value={state.data.openReports} />
           <Metric label="Suspended users" value={state.data.users.suspended} />
         </div>
-      )}
-      {state.errorCode === 'ADMIN_MFA_REQUIRED' && (
-        <AdminAccessSetup onComplete={() => setRefresh((v) => v + 1)} />
       )}
       {ready && tab === 'Users' && (
         <AdminUsers currentUserId={user?.userId || user?.user_id} />

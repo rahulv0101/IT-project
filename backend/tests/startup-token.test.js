@@ -29,7 +29,7 @@ function tempEnv(contents = '') {
 describe('AI service token startup configuration', () => {
   test('replaces example placeholders while preserving provider credentials', () => {
     const envFile = tempEnv(
-      'AI_SERVICE_TOKEN=generate-a-long-random-token\nMFA_ENCRYPTION_KEY=generate-a-64-character-hex-key-with-npm-run-setup-token\nAI_API_KEY=preserve-provider-key\n',
+      'AI_SERVICE_TOKEN=generate-a-long-random-token\nAI_API_KEY=preserve-provider-key\n',
     );
     const output = execFileSync(process.execPath, ['scripts/setup-token.mjs'], {
       cwd: root,
@@ -38,7 +38,7 @@ describe('AI service token startup configuration', () => {
     });
     const contents = readFileSync(envFile, 'utf8');
     expect(contents).toMatch(/^AI_SERVICE_TOKEN=[A-Za-z0-9]{48}$/m);
-    expect(contents).toMatch(/^MFA_ENCRYPTION_KEY=[a-f0-9]{64}$/m);
+    expect(contents).not.toMatch(/^MFA_ENCRYPTION_KEY=/m);
     expect(contents).toContain('AI_API_KEY=preserve-provider-key');
     expect(output).not.toContain('preserve-provider-key');
   });

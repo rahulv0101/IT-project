@@ -355,3 +355,7 @@ Detailed results and deployment evidence: `docs/COLLABORATION_VALIDATION_2026-11
 ### Memory Match “not enough questions” correction — 2026-11-03
 
 Shared `memory_match/eligibility.js`, minimum configuration and migration 030 align catalogue availability with actual dealing for 2–6 pairs and longer question/answer text. API tests cover 2-, 3- and 5-pair boards, long AI-style text, normalized duplicate answers and no hidden-text exposure. `memory-match-regression.spec.js` plays a real two-question quiz to completion and checks long-text containment, accessibility and mobile overflow. Results: `docs/MEMORY_MATCH_FIX_2026-11-03.md`.
+
+### Owner request: remove MFA — 2026-11-03
+
+Password-only sign-in and production admin access are implemented in `backend/src/app.js` and `backend/src/admin/routes.js`. `frontend/src/main.jsx` and `admin.jsx` no longer offer authenticator/recovery workflows. Migration 031 clears retired authentication material. The replacement `mfa-api.test.js` verifies password-only behavior against legacy credentials, role checks, retirement responses and migration preservation. The executable authorization matrix covers all retired routes; `system-sweep.spec.js` checks all three roles and retains registration email OTP coverage.

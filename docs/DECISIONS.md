@@ -296,3 +296,11 @@ claiming this requirement done. No paid API was used for these attempts.
 - Memory Match now starts with at least two distinct question/answer pairs and deals up to six pairs. Migration 030 updates the catalogue minimum and description. Larger quizzes still use randomized six-pair rounds.
 - The game picker and dealing endpoint share the same SQL eligibility rules. Multiple-choice and true/false questions with nonblank correct answers are supported without the old display-length limits. Answers differing only in whitespace or letter case are deduplicated so identical-looking cards cannot represent different pairs. Code and free-text questions remain excluded from this fixed-option game.
 - Card fronts grow to fit the returned text instead of clipping it in a fixed-height face. The board states its actual pair count. Hidden card text, ownership checks and competitive-attempt locks remain server enforced.
+
+### 2026-11-03 — Remove MFA at the owner's explicit request
+
+- All roles, including production administrators, now authenticate using email and password. The administrator role/active-account guard remains; the mandatory MFA gate, login challenges, authenticator enrolment UI and recovery-code login UI are removed.
+- Registration email OTP verification remains enabled. Password hashing, secure sessions, sign-in rate limits, account-status checks and role/ownership authorization remain unchanged.
+- Former MFA routes return `410 MFA_REMOVED` and cannot issue sessions or new credentials. Authenticated legacy management URLs retain authentication checks. This gives existing open tabs a clear instruction to return to password login.
+- Migration 031 removes saved authenticator secrets, recovery codes and login challenges. It preserves users, password hashes, roles, sessions, verification records and academic data. Historical tables remain empty for migration/backup compatibility; legacy response fields report `mfa_enabled=false`.
+- QR-generation dependencies, MFA helpers and the MFA encryption-key startup requirement are removed. Tests exercise legacy enabled credential rows, production admin access, rejected wrong passwords, role boundaries, retired endpoints and migration data preservation.

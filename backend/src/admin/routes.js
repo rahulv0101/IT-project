@@ -61,20 +61,6 @@ export function registerAdminRoutes({
         'Administrator access is required.',
         requestId(req),
       );
-    if (process.env.NODE_ENV === 'production') {
-      const mfa = await pool.query(
-        'SELECT 1 FROM mfa_credentials WHERE user_id=$1 AND enabled=true',
-        [req.user.userId],
-      );
-      if (!mfa.rowCount)
-        return error(
-          res,
-          403,
-          'ADMIN_MFA_REQUIRED',
-          'Enable multi-factor authentication before using administration.',
-          requestId(req),
-        );
-    }
     next();
   };
   const audit = async (
@@ -168,7 +154,7 @@ export function registerAdminRoutes({
       const result = await pool.query(
         `SELECT u.user_id,u.email,u.full_name,u.role,u.account_status,u.email_verified_at,
                 u.requires_password_reset,u.created_date,
-                EXISTS(SELECT 1 FROM mfa_credentials mc WHERE mc.user_id=u.user_id AND mc.enabled=true) AS mfa_enabled,
+                false AS mfa_enabled,
                 count(*) OVER()::int total
            FROM users u
           WHERE u.account_status<>'deleted' AND ($1::text IS NULL OR u.email ILIKE $1 OR u.full_name ILIKE $1) AND ($4::text IS NULL OR u.role::text=$4)

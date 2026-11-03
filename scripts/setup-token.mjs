@@ -1,4 +1,4 @@
-import { randomBytes, randomInt } from 'node:crypto';
+import { randomInt } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parse } from 'dotenv';
@@ -30,18 +30,4 @@ if (
   setValue('AI_SERVICE_TOKEN', createToken());
   console.log('AI_SERVICE_TOKEN=created');
 } else console.log('AI_SERVICE_TOKEN=present');
-const mfaKey = values.MFA_ENCRYPTION_KEY;
-if (!mfaKey || mfaKey.startsWith('generate-a-')) {
-  setValue('MFA_ENCRYPTION_KEY', randomBytes(32).toString('hex'));
-  console.log('MFA_ENCRYPTION_KEY=created');
-} else {
-  if (
-    !/^[0-9a-f]{64}$/i.test(mfaKey) &&
-    Buffer.from(mfaKey, 'base64').length !== 32
-  )
-    throw new Error(
-      'MFA_ENCRYPTION_KEY must be a 32-byte key. Restore the existing key; setup will not rotate it.',
-    );
-  console.log('MFA_ENCRYPTION_KEY=present');
-}
 await writeFile(envPath, contents, { mode: 0o600 });

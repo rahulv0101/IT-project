@@ -241,9 +241,6 @@ function Auth({ onLogin }) {
     ['At least one number', /[0-9]/.test(form.password)],
     ['At least one special character', /[^A-Za-z0-9]/.test(form.password)],
   ];
-  const [challengeId, setChallengeId] = useState(null);
-  const [factor, setFactor] = useState('');
-  const [useRecovery, setUseRecovery] = useState(false);
   const setField = (key, value) => {
     setForm((current) => ({ ...current, [key]: value }));
     setFields((current) => ({ ...current, [key]: '' }));
@@ -271,26 +268,15 @@ function Auth({ onLogin }) {
     }
     setBusy(true);
     try {
-      const body = await api(
-        challengeId ? '/auth/login/mfa' : `/auth/${mode}`,
-        {
-          method: 'POST',
-          body: JSON.stringify(
-            challengeId
-              ? {
-                  challengeId,
-                  [useRecovery ? 'recoveryCode' : 'code']: factor.trim(),
-                }
-              : mode === 'login'
-                ? { email: form.email, password: form.password }
-                : { ...form, lastName: form.lastName.trim() || null },
-          ),
-        },
-      );
-      if (body.mfaRequired) {
-        setChallengeId(body.challengeId);
-        setFactor('');
-      } else if (body.user) {
+      const body = await api(`/auth/${mode}`, {
+        method: 'POST',
+        body: JSON.stringify(
+          mode === 'login'
+            ? { email: form.email, password: form.password }
+            : { ...form, lastName: form.lastName.trim() || null },
+        ),
+      });
+      if (body.user) {
         if (mode === 'register')
           setVerification({
             ...body.user,
@@ -347,214 +333,160 @@ function Auth({ onLogin }) {
       <form className="card auth-card" onSubmit={submit}>
         <span className="eyebrow">EDUQUEST</span>
         <h1>
-          {challengeId
-            ? 'Verify your sign-in'
-            : mode === 'login'
-              ? 'Welcome back'
-              : 'Create your student account'}
+          {mode === 'login' ? 'Welcome back' : 'Create your student account'}
         </h1>
         <p className="auth-description">
           {mode === 'login'
             ? 'Your learning journey, all in one place.'
             : 'A fresh start for your next big idea.'}
         </p>
-        {!challengeId && (
-          <>
-            {mode === 'register' && (
-              <label>
-                First name
-                <input
-                  value={form.firstName}
-                  onChange={(event) =>
-                    setField('firstName', event.target.value)
-                  }
-                  required
-                  autoComplete="given-name"
-                  maxLength={50}
-                  {...fieldProps('firstName')}
-                />
-                {fieldError('firstName')}
-              </label>
-            )}
-            {mode === 'register' && (
-              <label>
-                Last name
-                <input
-                  value={form.lastName}
-                  required
-                  autoComplete="family-name"
-                  maxLength={50}
-                  {...fieldProps('lastName')}
-                  onChange={(event) => setField('lastName', event.target.value)}
-                />
-                {fieldError('lastName')}
-              </label>
-            )}
+        <>
+          {mode === 'register' && (
             <label>
-              Email
+              First name
               <input
-                type="email"
-                autoComplete="email"
-                maxLength={254}
-                {...fieldProps('email')}
-                value={form.email}
-                onChange={(event) => setField('email', event.target.value)}
+                value={form.firstName}
+                onChange={(event) => setField('firstName', event.target.value)}
                 required
+                autoComplete="given-name"
+                maxLength={50}
+                {...fieldProps('firstName')}
               />
-              {fieldError('email')}
+              {fieldError('firstName')}
             </label>
-            <div className="field-group">
-              <label htmlFor="auth-password">Password</label>
-              <PasswordInput
-                id="auth-password"
-                label="password"
-                show={showPassword}
-                onToggle={() => setShowPassword(!showPassword)}
-                autoComplete={
-                  mode === 'login' ? 'current-password' : 'new-password'
-                }
-                {...fieldProps('password')}
-                value={form.password}
-                onChange={(event) => setField('password', event.target.value)}
+          )}
+          {mode === 'register' && (
+            <label>
+              Last name
+              <input
+                value={form.lastName}
                 required
-                minLength={mode === 'register' ? 10 : undefined}
-                maxLength={200}
+                autoComplete="family-name"
+                maxLength={50}
+                {...fieldProps('lastName')}
+                onChange={(event) => setField('lastName', event.target.value)}
               />
-              {mode === 'register' && (
-                <>
-                  {' '}
-                  <p className="sr-only">
-                    Password strength:{' '}
-                    {passwordRules.filter(([, met]) => met).length} of 5 rules
-                    met
-                  </p>
-                  <ul
-                    className="password-rules"
-                    aria-label="Password requirements"
-                  >
-                    {passwordRules.map(([label, met]) => (
-                      <li key={label} className={met ? 'met' : 'unmet'}>
-                        <span aria-hidden="true">{met ? '✓' : '○'} </span>
-                        {label}
-                        <span className="sr-only">
-                          {' '}
-                          {met ? 'met' : 'unmet'}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-              {fieldError('password')}
-            </div>
+              {fieldError('lastName')}
+            </label>
+          )}
+          <label>
+            Email
+            <input
+              type="email"
+              autoComplete="email"
+              maxLength={254}
+              {...fieldProps('email')}
+              value={form.email}
+              onChange={(event) => setField('email', event.target.value)}
+              required
+            />
+            {fieldError('email')}
+          </label>
+          <div className="field-group">
+            <label htmlFor="auth-password">Password</label>
+            <PasswordInput
+              id="auth-password"
+              label="password"
+              show={showPassword}
+              onToggle={() => setShowPassword(!showPassword)}
+              autoComplete={
+                mode === 'login' ? 'current-password' : 'new-password'
+              }
+              {...fieldProps('password')}
+              value={form.password}
+              onChange={(event) => setField('password', event.target.value)}
+              required
+              minLength={mode === 'register' ? 10 : undefined}
+              maxLength={200}
+            />
             {mode === 'register' && (
               <>
-                <div className="field-group">
-                  <label htmlFor="auth-confirm-password">
-                    Confirm password
-                  </label>
-                  <PasswordInput
-                    id="auth-confirm-password"
-                    label="confirmation password"
-                    show={showConfirmation}
-                    onToggle={() => setShowConfirmation(!showConfirmation)}
-                    autoComplete="new-password"
-                    maxLength={200}
-                    {...fieldProps('confirmPassword')}
-                    value={form.confirmPassword}
-                    onChange={(event) =>
-                      setField('confirmPassword', event.target.value)
-                    }
-                    required
-                  />
-                  {fieldError('confirmPassword')}
-                </div>
-                <label>
-                  Student type
-                  <select
-                    value={form.studentType}
-                    onChange={(event) =>
-                      setForm({ ...form, studentType: event.target.value })
-                    }
-                  >
-                    <option value="it">IT</option>
-                    <option value="business">Business</option>
-                  </select>
-                </label>
-                <label>
-                  Year of study
-                  <select
-                    value={form.studentYear}
-                    onChange={(event) =>
-                      setForm({
-                        ...form,
-                        studentYear: Number(event.target.value),
-                      })
-                    }
-                  >
-                    <option value={1}>Year 1</option>
-                    <option value={2}>Year 2</option>
-                    <option value={3}>Year 3</option>
-                  </select>
-                </label>
-                <p className="muted">Registration creates a student account.</p>
+                {' '}
+                <p className="sr-only">
+                  Password strength:{' '}
+                  {passwordRules.filter(([, met]) => met).length} of 5 rules met
+                </p>
+                <ul
+                  className="password-rules"
+                  aria-label="Password requirements"
+                >
+                  {passwordRules.map(([label, met]) => (
+                    <li key={label} className={met ? 'met' : 'unmet'}>
+                      <span aria-hidden="true">{met ? '✓' : '○'} </span>
+                      {label}
+                      <span className="sr-only"> {met ? 'met' : 'unmet'}</span>
+                    </li>
+                  ))}
+                </ul>
               </>
             )}
-          </>
-        )}
-        {challengeId && (
-          <>
-            <label>
-              {useRecovery ? 'Recovery code' : 'Authenticator code'}
-              <input
-                value={factor}
-                onChange={(event) => setFactor(event.target.value)}
-                autoComplete="one-time-code"
-                inputMode={useRecovery ? 'text' : 'numeric'}
-                pattern={useRecovery ? undefined : '[0-9]{6}'}
-                required
-              />
-            </label>
-            <button
-              className="link-button"
-              type="button"
-              onClick={() => {
-                setUseRecovery(!useRecovery);
-                setFactor('');
-                setError('');
-              }}
-            >
-              {useRecovery ? 'Use authenticator code' : 'Use recovery code'}
-            </button>
-          </>
-        )}
+            {fieldError('password')}
+          </div>
+          {mode === 'register' && (
+            <>
+              <div className="field-group">
+                <label htmlFor="auth-confirm-password">Confirm password</label>
+                <PasswordInput
+                  id="auth-confirm-password"
+                  label="confirmation password"
+                  show={showConfirmation}
+                  onToggle={() => setShowConfirmation(!showConfirmation)}
+                  autoComplete="new-password"
+                  maxLength={200}
+                  {...fieldProps('confirmPassword')}
+                  value={form.confirmPassword}
+                  onChange={(event) =>
+                    setField('confirmPassword', event.target.value)
+                  }
+                  required
+                />
+                {fieldError('confirmPassword')}
+              </div>
+              <label>
+                Student type
+                <select
+                  value={form.studentType}
+                  onChange={(event) =>
+                    setForm({ ...form, studentType: event.target.value })
+                  }
+                >
+                  <option value="it">IT</option>
+                  <option value="business">Business</option>
+                </select>
+              </label>
+              <label>
+                Year of study
+                <select
+                  value={form.studentYear}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      studentYear: Number(event.target.value),
+                    })
+                  }
+                >
+                  <option value={1}>Year 1</option>
+                  <option value={2}>Year 2</option>
+                  <option value={3}>Year 3</option>
+                </select>
+              </label>
+              <p className="muted">Registration creates a student account.</p>
+            </>
+          )}
+        </>
         <button className="primary" type="submit" disabled={busy}>
-          {busy
-            ? 'Please wait…'
-            : challengeId
-              ? 'Verify sign-in'
-              : mode === 'login'
-                ? 'Log in'
-                : 'Register'}
+          {busy ? 'Please wait…' : mode === 'login' ? 'Log in' : 'Register'}
         </button>
         <button
           className="link-button"
           type="button"
           onClick={() => {
-            setMode(
-              challengeId ? 'login' : mode === 'login' ? 'register' : 'login',
-            );
-            setChallengeId(null);
-            setFactor('');
+            setMode(mode === 'login' ? 'register' : 'login');
             setFields({});
             setError('');
           }}
         >
-          {challengeId
-            ? 'Back to login'
-            : mode === 'login'
-              ? 'Create an account'
-              : 'I already have an account'}
+          {mode === 'login' ? 'Create an account' : 'I already have an account'}
         </button>
         {error && (
           <p className="form-error" role="alert">

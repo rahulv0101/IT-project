@@ -29,13 +29,9 @@ Vercel Blob store. The local development database was not published or reset.
 
 ## Accounts and secrets
 
-Initial admin, lecturer and validation-student credentials are saved only in the ignored local
-`.env.vercel-accounts.json` file with owner-only permissions. The production
-administrator has MFA enabled; its authenticator setup key, URI and recovery
-codes are in that same private file. Import the key into your authenticator before
-using the admin account. No public demo passwords were deployed.
+Initial admin, lecturer and validation-student credentials are saved only in the ignored local `.env.vercel-accounts.json` file with owner-only permissions. All roles now sign in with email and password. MFA and authenticator setup were removed at the owner's request; registration email verification remains enabled. No public demo passwords were deployed.
 
-`.env.vercel-production` privately preserves the generated service/MFA secrets;
+`.env.vercel-production` privately preserves the service secrets;
 `.env.local` contains integration-managed database credentials. All `.env*` files
 and `.vercel` directories are excluded from deployment uploads and Git.
 

@@ -45,7 +45,6 @@ process.env.NODE_ENV = 'development';
 process.env.EMAIL_DELIVERY = 'development-file';
 process.env.COOKIE_SECURE = 'false';
 process.env.AI_SERVICE_TOKEN ||= randomBytes(32).toString('hex');
-process.env.MFA_ENCRYPTION_KEY ||= randomBytes(32).toString('hex');
 const password = 'PipelineCheck123!';
 let cleanupDatabase, ai, pool;
 const started = Date.now();

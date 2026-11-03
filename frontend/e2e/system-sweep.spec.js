@@ -1,7 +1,6 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { readFile } from 'node:fs/promises';
-import { totpAt } from '../../backend/src/mfa.js';
 
 test.beforeEach(async ({ page }) => {
   expect(
@@ -124,70 +123,47 @@ test('registration matches the branch and verifies a six-digit email code', asyn
   expect(errors).toEqual([]);
 });
 
-test('existing MFA recovery login works while profile security controls stay removed', async ({
+test('all roles sign in with passwords without authenticator or recovery prompts', async ({
   page,
-}, info) => {
-  const email = `mfa-sweep-${info.project.name}-${Date.now()}@example.com`;
-  const response = await page.request.post('/api/v1/auth/register', {
-    data: {
-      email,
-      password: 'CorrectHorse9!',
-      confirmPassword: 'CorrectHorse9!',
-      firstName: 'Sam',
-      studentType: 'it',
-    },
-  });
-  expect(response.status()).toBe(201);
-  const { user } = await response.json();
-  const mail = await readFile(`docs/dev-mail/${user.user_id}.txt`, 'utf8');
-  const token = new URL(mail.match(/https?:\/\/\S+/)[0]).searchParams.get(
-    'token',
-  );
-  expect(
-    (
-      await page.request.get(`/api/v1/auth/verify-email?token=${token}`)
-    ).status(),
-  ).toBe(200);
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Profile', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Enrol MFA' })).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: 'Change email' })).toHaveCount(
-    0,
-  );
-  const enrol = await page.request.post('/api/v1/mfa/enrol', { data: {} });
-  expect(enrol.status()).toBe(200);
-  const { setupKey: key } = await enrol.json();
-  const confirmed = await page.request.post('/api/v1/mfa/confirm', {
-    data: { code: totpAt(key, Date.now()) },
-  });
-  expect(confirmed.status()).toBe(200);
-  const { recoveryCodes: codes } = await confirmed.json();
-  expect(codes).toHaveLength(10);
-  await page.getByRole('button', { name: 'Log out', exact: true }).click();
-  await page.getByLabel('Email', { exact: true }).fill(email);
-  await page.getByLabel('Password', { exact: true }).fill('CorrectHorse9!');
-  await page.getByRole('button', { name: 'Log in', exact: true }).click();
-  await expect(
-    page.getByRole('heading', { name: 'Verify your sign-in' }),
-  ).toBeVisible();
-  await page
-    .getByRole('button', { name: 'Use recovery code', exact: true })
-    .click();
-  await page.getByLabel('Recovery code', { exact: true }).fill(codes[0]);
-  await page
-    .getByRole('button', { name: 'Verify sign-in', exact: true })
-    .click();
-  await expect(
-    page.getByRole('button', { name: 'Log out', exact: true }),
-  ).toBeVisible();
-  await page.getByRole('button', { name: 'Profile', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Disable MFA' })).toHaveCount(
-    0,
-  );
-  const disabled = await page.request.post('/api/v1/mfa/disable', {
-    data: { password: 'CorrectHorse9!', recoveryCode: codes[1] },
-  });
-  expect(disabled.status()).toBe(200);
+}) => {
+  for (const [role, email] of [
+    ['admin', 'demo-admin@example.com'],
+    ['lecturer', 'demo-lecturer@example.com'],
+    ['student', 'demo-student-1@example.com'],
+  ]) {
+    await login(page, email);
+    await expect(
+      page.getByRole('heading', { name: 'Verify your sign-in' }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByLabel('Authenticator code', { exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole('button', { name: 'Use recovery code', exact: true }),
+    ).toHaveCount(0);
+    if (role === 'admin') {
+      expect((await page.request.get('/api/v1/admin/dashboard')).status()).toBe(
+        200,
+      );
+      await expect(
+        page.getByRole('button', { name: 'Set up administrator sign-in' }),
+      ).toHaveCount(0);
+    }
+    await page.getByRole('button', { name: 'Profile', exact: true }).click();
+    await expect(
+      page.getByRole('heading', { name: 'Edit profile', exact: true }),
+    ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Enrol MFA' })).toHaveCount(
+      0,
+    );
+    expect(
+      (await page.request.post('/api/v1/mfa/enrol', { data: {} })).status(),
+    ).toBe(410);
+    await page.getByRole('button', { name: 'Log out', exact: true }).click();
+    await expect(
+      page.getByRole('heading', { name: 'Welcome back', exact: true }),
+    ).toBeVisible();
+  }
 });
 
 for (const [role, email] of [
