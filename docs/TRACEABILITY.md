@@ -367,3 +367,7 @@ The lecturer-owned `/me/modules` catalogue includes saved join codes, displayed 
 ### Empty student Practice Labs — 2026-11-03
 
 Migration 032 provisions four system starter labs independently of module enrolment. `labAccess` and the `/labs` catalogue preserve module ownership while allowing student access to system content. `PracticeLabs` fetches authorized details before opening players and handles failures/search misses. API tests exercise unenrolled student access, all four kinds, immutable system content, private attempts and server-evaluated spreadsheet feedback. Component tests cover summary/detail loading and recoverable failures. `practice-labs-regression.spec.js` uses the real catalogue, players and attempt APIs to run all four exercises, verify checks/calculations/reflections and restore saved work on mobile and desktop.
+
+### AI status unavailable after transient startup — 2026-11-03
+
+`backend/src/ai-health.js` replaces the one-second status deadline with a bounded serverless-friendly probe, in-flight deduplication and short success caching. Its tests include a real authenticated HTTP response delayed beyond one second, timeout/retry, concurrent calls, expiry and invalid health responses. `ResourceRow` distinguishes missing configuration from a failed status request, offers manual/automatic rechecks and preserves generation after temporary reachability failures. Component regressions and `ai-status-regression.spec.js` verify recovery, configuration gating, accessibility and mobile containment.

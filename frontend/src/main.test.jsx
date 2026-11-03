@@ -1786,6 +1786,102 @@ describe('frontend authentication and role routing', () => {
     ).toBe(false);
   });
 
+  it('allows generation after a temporary health failure and supports checking status again', async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (url.endsWith('/ai-status'))
+        return response({
+          configured: true,
+          reachable:
+            fetchMock.mock.calls.filter(([path]) => path.endsWith('/ai-status'))
+              .length > 1,
+        });
+      return response({
+        job: {
+          job_id: 'check-retry',
+          status: 'failed',
+          error_code: 'CANCELLED',
+        },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    render(
+      <ResourceRow
+        lecturer
+        resource={{
+          resource_id: 'health-retry',
+          title: 'Notes',
+          resource_type: 'pdf',
+        }}
+      />,
+    );
+    await screen.findByText('AI status: unavailable');
+    expect(screen.getByRole('button', { name: 'Generate quiz' }).disabled).toBe(
+      false,
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Check AI status for Notes' }),
+    );
+    await screen.findByText('AI status: ready');
+    expect(screen.queryByText(/The AI service did not respond/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Generate quiz' }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([url]) => url.endsWith('/generation-jobs')),
+      ).toBe(true),
+    );
+  });
+  it('does not mistake a failed status request for missing provider configuration', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockRejectedValue(new Error('Network error')),
+    );
+    render(
+      <ResourceRow
+        lecturer
+        resource={{
+          resource_id: 'health-network',
+          title: 'Notes',
+          resource_type: 'pdf',
+        }}
+      />,
+    );
+    await screen.findByText('AI status: unavailable');
+    expect(screen.getByRole('button', { name: 'Generate quiz' }).disabled).toBe(
+      false,
+    );
+    expect(
+      screen.getByRole('button', { name: 'Check AI status for Notes' })
+        .disabled,
+    ).toBe(false);
+    expect(screen.queryByText(/AI generation is not configured/)).toBeNull();
+  });
+  it('blocks generation only when provider configuration is explicitly missing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(response({ configured: false, reachable: false })),
+    );
+    render(
+      <ResourceRow
+        lecturer
+        resource={{
+          resource_id: 'health-config',
+          title: 'Notes',
+          resource_type: 'pdf',
+        }}
+      />,
+    );
+    await screen.findByText('AI status: unavailable');
+    expect(screen.getByRole('button', { name: 'Generate quiz' }).disabled).toBe(
+      true,
+    );
+    expect(
+      screen.getByRole('button', { name: 'Check AI status for Notes' })
+        .disabled,
+    ).toBe(false);
+  });
+
   it('shows queued, running and succeeded AI generation states with an editable draft', async () => {
     const fetchMock = vi
       .fn()

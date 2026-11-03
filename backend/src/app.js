@@ -44,6 +44,7 @@ import {
   recordProfanityViolation,
   isProfanityCooldownActive,
 } from './profanity/rate-limit.js';
+import { createAiHealthProbe } from './ai-health.js';
 import { getGameAvailability } from './games/availability.js';
 import { validateScenarioConfig } from './labs/scenario.js';
 import { evaluateCell } from './labs/formula.js';
@@ -3305,6 +3306,7 @@ app.get(
   },
 );
 
+const probeAiHealth = createAiHealthProbe();
 app.get(
   '/api/v1/ai-status',
   requireAuth,
@@ -3326,26 +3328,13 @@ app.get(
           process.env.AI_API_KEY &&
           process.env.AI_MODEL,
         ));
-    let reachable = selected === 'mock';
-    if (configured && !reachable) {
-      try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 1000);
-        const response = await fetch(
-          `${process.env.AI_SERVICE_URL || 'http://127.0.0.1:8000'}/health`,
-          {
-            headers: {
-              'x-ai-service-token': process.env.AI_SERVICE_TOKEN || '',
-            },
-            signal: controller.signal,
-          },
-        );
-        clearTimeout(timer);
-        reachable = response.ok;
-      } catch {
-        reachable = false;
-      }
-    }
+    const reachable =
+      selected === 'mock' ||
+      (configured &&
+        (await probeAiHealth(
+          process.env.AI_SERVICE_URL || 'http://127.0.0.1:8000',
+          process.env.AI_SERVICE_TOKEN || '',
+        )));
     res.json({
       provider: selected,
       configured,

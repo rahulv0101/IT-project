@@ -2222,6 +2222,17 @@ export function ResourceRow({ resource, lecturer }) {
   const [job, setJob] = useState(null);
   const [quiz, setQuiz] = useState(null);
   const [aiStatus, setAiStatus] = useState(null);
+  const [checkingAi, setCheckingAi] = useState(false);
+  const checkAiStatus = async () => {
+    setCheckingAi(true);
+    try {
+      setAiStatus(await api('/ai-status'));
+    } catch {
+      setAiStatus({ configured: null, reachable: false });
+    } finally {
+      setCheckingAi(false);
+    }
+  };
   const [now, setNow] = useState(Date.now());
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -2257,11 +2268,21 @@ export function ResourceRow({ resource, lecturer }) {
   };
   useEffect(() => {
     if (!lecturer) return undefined;
-    api('/ai-status')
-      .then((body) => setAiStatus(body))
-      .catch(() => setAiStatus({ configured: false, reachable: false }));
+    checkAiStatus();
     return undefined;
   }, [lecturer]);
+  useEffect(() => {
+    if (
+      !lecturer ||
+      checkingAi ||
+      !aiStatus ||
+      aiStatus.reachable ||
+      aiStatus.configured === false
+    )
+      return undefined;
+    const timer = setTimeout(checkAiStatus, 15000);
+    return () => clearTimeout(timer);
+  }, [lecturer, checkingAi, aiStatus]);
   useEffect(() => {
     if (!job || !['queued', 'running'].includes(job.status)) return undefined;
     setNow(Date.now());
@@ -2423,21 +2444,33 @@ export function ResourceRow({ resource, lecturer }) {
             onChange={(event) => setClosesAt(event.target.value)}
           />
         </label>
-        {(aiStatus && !aiStatus.configured) ||
-        (aiStatus && !aiStatus.reachable) ? (
+        {aiStatus?.configured === false ? (
           <p className="field-error">
-            AI service is not reachable or is misconfigured. Check the{' '}
-            <a href="#ai-status">AI status indicator</a> before generating.
+            AI generation is not configured. Contact your administrator.
+          </p>
+        ) : aiStatus && !aiStatus.reachable && !checkingAi ? (
+          <p className="field-error">
+            The AI service did not respond. Check again or try generating;
+            startup can take a few seconds.
           </p>
         ) : null}
-        <p id="ai-status" className="muted" aria-live="polite">
+        <p className="muted" aria-live="polite">
           AI status:{' '}
-          {aiStatus
-            ? aiStatus.configured && aiStatus.reachable
+          {checkingAi || !aiStatus
+            ? 'checking'
+            : aiStatus.configured && aiStatus.reachable
               ? 'ready'
-              : 'unavailable'
-            : 'checking'}
+              : 'unavailable'}
         </p>
+        <button
+          className="secondary"
+          type="button"
+          disabled={checkingAi}
+          onClick={checkAiStatus}
+          aria-label={`Check AI status for ${resource.title}`}
+        >
+          {checkingAi ? 'Checking AI…' : 'Check AI status'}
+        </button>
         <button
           className="primary"
           onClick={generate}
@@ -2445,7 +2478,7 @@ export function ResourceRow({ resource, lecturer }) {
             requesting ||
             ['queued', 'running'].includes(job?.status) ||
             !generationSupported ||
-            Boolean(aiStatus && (!aiStatus.configured || !aiStatus.reachable))
+            aiStatus?.configured === false
           }
         >
           Generate quiz

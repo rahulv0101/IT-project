@@ -1,0 +1,7 @@
+# AI status recovery — 2026-11-03
+
+The hosted OpenRouter configuration matched the deployment configuration, and authenticated Python health requests returned HTTP 200. The previous backend health check aborted after only one second. A resource card checked once, interpreted a network failure as missing configuration and permanently disabled generation until the page was remounted. This made transient serverless startup/network delays look like a persistent outage.
+
+The new probe allows 15 seconds, shares concurrent checks and caches healthy results for 30 seconds. It validates the expected JSON health response; failures can be retried immediately. The resource card distinguishes temporary unavailability from confirmed missing settings, offers a Check AI status button, retries transient failures after 15 seconds and keeps actual generation available when only the health probe fails. Role, ownership, provider-output validation and durable worker checks remain enforced.
+
+Validation: 658 automated tests passed (274 unit/component and 384 API). The health tests include a real authenticated HTTP response delayed beyond one second, bounded timeout and recovery, concurrent requests, cache expiry and unhealthy/non-JSON responses. Browser recovery checks passed on Chromium mobile/desktop and Firefox mobile, including accessibility and overflow checks. Lint, type checking, formatting and production build passed.

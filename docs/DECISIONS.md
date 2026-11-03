@@ -317,3 +317,9 @@ claiming this requirement done. No paid API was used for these attempts.
 - Starter labs have no module/author and are constrained to published system scope. Existing module labs retain required module/author references and their enrolment/lecturer ownership checks. Students can read starter content and save only their own attempts; lecturers cannot change or delete system starters.
 - Catalogue rows are summaries. The UI now requests authorized lab details before mounting a player, reports detail-loading failures, and shows a useful search-empty state. This fixes missing starter code, grids, calculator fields and scenario nodes.
 - Code drafts restore on reopening; saved scenario terminal nodes restore their reflection. Spreadsheet saves compute feedback and completion against server-held expected values, return feedback immediately and keep expected answers private. Practice progress remains separate from scored quizzes and leaderboards.
+
+### 2026-11-03 — Recover from AI health-check startup delays
+
+- Live configuration and authenticated AI health requests were valid. The previous status endpoint imposed a one-second deadline, and each resource card permanently disabled generation after its initial failed probe. A transient startup/network delay therefore appeared as persistent misconfiguration.
+- Health probes now allow 15 seconds, share concurrent requests, validate the expected JSON health response and cache success for 30 seconds. Failures remain immediately retryable. Tokens stay in server-side headers and are never included in status output.
+- Resource cards provide an explicit status recheck and retry transient unavailability after 15 seconds. Network errors remain distinct from confirmed missing configuration. Health reachability is advisory; only confirmed missing provider settings block submission. Actual generation still validates ownership, source material and provider output through the durable worker.
