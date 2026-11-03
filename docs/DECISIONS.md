@@ -331,3 +331,8 @@ claiming this requirement done. No paid API was used for these attempts.
 - Profile password fields have independent show/hide controls, autocomplete hints, field-associated accessible errors and separate success/error state from profile editing. Confirmation mismatches are caught locally and on the server. New-password policy failures no longer appear as current-password failures. Fields and visibility reset only after a successful change.
 - Password changes lock the user row and verify the current hash inside a transaction on one checked-out connection. Updating the hash, clearing the temporary-password reset flag and revoking other sessions commit together. The current session remains valid. A session-write failure rolls back the password update; errors release the connection.
 - DNS fixtures live in test suites and the isolated browser-server entry point. The production application has no test-only domain bypass. The owner subsequently authorized pushing this correction to Rahul’s GitHub and updating the live site. Release validation is recorded in `docs/EMAIL_PASSWORD_RELEASE_2026-11-03.md`.
+
+### 2026-11-03 — Remove the unused admin Moderation section
+
+- At the owner's request, remove the Moderation tab, report cards/actions and the related Open reports overview metric from the admin UI. Remove the unused refresh/action handler. Overview, Users, Modules, System and Audit remain available.
+- This is a presentation change; no database migration or report-data deletion is required. Existing admin component and browser navigation checks now assert that Moderation is absent.

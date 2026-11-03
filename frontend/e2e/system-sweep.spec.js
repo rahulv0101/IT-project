@@ -271,14 +271,10 @@ for (const [role, email] of [
         .locator('aside')
         .getByRole('button', { name: 'Admin', exact: true })
         .click();
-      for (const tab of [
-        'Overview',
-        'Users',
-        'Modules',
-        'Moderation',
-        'System',
-        'Audit',
-      ]) {
+      await expect(
+        page.getByRole('button', { name: 'Moderation', exact: true }),
+      ).toHaveCount(0);
+      for (const tab of ['Overview', 'Users', 'Modules', 'System', 'Audit']) {
         await page
           .getByRole('navigation', { name: 'Administration sections' })
           .getByRole('button', { name: tab, exact: true })

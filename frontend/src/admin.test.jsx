@@ -33,7 +33,8 @@ describe('Admin control centre', () => {
     );
     render(<AdminPage />);
     expect(await screen.findByText('12')).toBeTruthy();
-    expect(screen.getByText('Open reports')).toBeTruthy();
+    expect(screen.queryByText('Open reports')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Moderation' })).toBeNull();
     expect(screen.queryByText(/edit score/i)).toBeNull();
   });
 

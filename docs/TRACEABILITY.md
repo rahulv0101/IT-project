@@ -384,3 +384,9 @@ Migration 032 provisions four system starter labs independently of module enrolm
 Gate verification: 77/77 focused component/unit tests and 204/204 focused API/authorization tests passed (including the additional rollback regression), with zero skips. The registration → email verification → profile password change → new-password sign-in browser flow passed on Chromium mobile/desktop and Firefox desktop, including axe checks. Lint, TypeScript, formatting and the production build passed. A live DNS check also classified the reported `gmail.con` example as invalid. Deployment and later milestones require the current gate approval.
 
 Release approval: the owner explicitly requested committing/pushing these other-chat changes to Rahul’s repository and updating the site. The complete release run passed 279 unit/component and 386 API tests, with zero skips; the end-to-end registration/password flow passed on Chromium mobile/desktop and Firefox mobile. See `docs/EMAIL_PASSWORD_RELEASE_2026-11-03.md` for deployment verification.
+
+### Remove blank admin Moderation section — 2026-11-03
+
+`frontend/src/admin.jsx` removes the Moderation navigation entry, report/action panel and related overview metric. Existing `admin.test.jsx` and the admin navigation case in `system-sweep.spec.js` verify removal and the remaining sections.
+
+Removal validation: all three existing admin component tests and both mobile/desktop admin browser navigation checks passed, including accessibility and overflow checks. Lint, type checking, formatting and production build passed.

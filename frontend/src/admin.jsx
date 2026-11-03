@@ -19,7 +19,7 @@ const adminApi = async (path, options = {}) => {
   return body;
 };
 
-const tabs = ['Overview', 'Users', 'Modules', 'Moderation', 'System', 'Audit'];
+const tabs = ['Overview', 'Users', 'Modules', 'System', 'Audit'];
 
 function Metric({ label, value }) {
   return (
@@ -38,12 +38,10 @@ export function AdminPage({ user }) {
     data: null,
     endpoint: null,
   });
-  const [refresh, setRefresh] = useState(0);
   const endpoint = {
     Overview: '/dashboard',
     Users: '/users',
     Modules: '/modules',
-    Moderation: '/reports',
     System: '/system',
     Audit: '/audit',
   }[tab];
@@ -69,15 +67,7 @@ export function AdminPage({ user }) {
     return () => {
       active = false;
     };
-  }, [endpoint, refresh]);
-  const act = async (path, body) => {
-    try {
-      await adminApi(path, { method: 'PATCH', body: JSON.stringify(body) });
-      setRefresh((value) => value + 1);
-    } catch (cause) {
-      setState((current) => ({ ...current, error: cause.message }));
-    }
-  };
+  }, [endpoint]);
   // A tab may render once before its effect runs. Never render the new tab with
   // the previous endpoint's differently shaped response.
   const ready =
@@ -126,7 +116,6 @@ export function AdminPage({ user }) {
             label="Published quizzes"
             value={state.data.quizzes.published}
           />
-          <Metric label="Open reports" value={state.data.openReports} />
           <Metric label="Suspended users" value={state.data.users.suspended} />
         </div>
       )}
@@ -146,45 +135,6 @@ export function AdminPage({ user }) {
                   <small>Lecturer: {module.lecturer_name}</small>
                 </span>
                 <span>{module.enrolments} enrolled</span>
-              </article>
-            ),
-          )}
-        </div>
-      )}
-      {ready && tab === 'Moderation' && (
-        <div className="admin-list">
-          {(!Array.isArray(state.data?.data) ||
-            state.data.data.length === 0) && (
-            <p className="empty-state">No open reports.</p>
-          )}
-          {(Array.isArray(state.data?.data) ? state.data.data : []).map(
-            (report) => (
-              <article className="card" key={report.report_id}>
-                <h3>{report.group_name}</h3>
-                <p>{report.body}</p>
-                <p>Reason: {report.reason}</p>
-                <div className="admin-actions">
-                  <button
-                    onClick={() =>
-                      act(`/reports/${report.report_id}`, {
-                        status: 'actioned',
-                        reason: 'Reviewed by administrator',
-                      })
-                    }
-                  >
-                    Action
-                  </button>
-                  <button
-                    onClick={() =>
-                      act(`/reports/${report.report_id}`, {
-                        status: 'dismissed',
-                        reason: 'Report dismissed after review',
-                      })
-                    }
-                  >
-                    Dismiss
-                  </button>
-                </div>
               </article>
             ),
           )}
