@@ -432,3 +432,5 @@ Release verification: `66ca17f` is live. All 697 automated tests and six browser
 `ProfilePage` conditionally hides Preferred languages for lecturers and omits that field from lecturer profile updates. The existing role-parameterized profile component regression verifies the fieldset is absent only for lecturers and retained for students/admins. Existing public/profile component checks continue to cover student language editing and password controls. No database or authentication change is required.
 
 Validation: 83 existing profile/application/collaboration component tests passed, including all three role variants and lecturer save payload omission; lint, type checking, formatting and production build passed.
+
+Live verification: `c2177af` was pushed to Rahul's master branch and deployed to https://eduquest-dun.vercel.app (`dpl_CVPvNkUQqRedENSNajrvuEtPt4qE`). Authenticated lecturer and student profile views confirmed the language controls are absent for the lecturer and retained for the student. Live checks did not save or change either profile. Existing admin visibility is covered by the role regression.
