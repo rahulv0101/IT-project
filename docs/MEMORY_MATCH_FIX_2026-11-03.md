@@ -12,4 +12,6 @@ The picker and start endpoint now share one definition of eligible pairs. Rounds
 
 Validation: 641 JavaScript/API tests passed (262 unit/component and 379 integration), zero skipped. The real-backend browser regression passed in Chromium at 390 and 1280 pixels and Firefox at 390 pixels: two long-text questions, matching picker/start counts, four cards, readable text without overflow, axe accessibility and game completion. ESLint and TypeScript passed.
 
-Production deployment and live verification results will be recorded after publishing.
+Published application commit: `5eb8184` at https://eduquest-dun.vercel.app. Migration 030 applied successfully after saving a private production backup. Live authenticated checks confirmed all three banks are available and start correctly: Study Guide uses six pairs, practice mad five pairs, and Database foundations PDF six pairs. A mobile browser resumed the real Study Guide board and displayed a question longer than the former limit without horizontal overflow. The temporary validation student was deleted; existing user progress and quiz content were not modified.
+
+The existing six-pair Memory Match completion, refresh, accessibility and competitive-lock browser flow also passed in Chromium mobile/desktop and Firefox mobile. Together with the new real-backend regression, six targeted browser checks passed. Formatting, lint, types, production build and credential scanning passed. No paid AI requests or real verification emails were needed.
