@@ -24,6 +24,12 @@ Production functional checks passed for creating all three roles, exchanging pri
 
 A read-only production sweep passed 24 pages/administration sections across lecturer, verified student and administrator accounts, including axe accessibility, mobile overflow and the absence of Profile email/MFA controls. Private before/after migration backups contain 45 and 48 tables respectively and are excluded from Git/deployment.
 
-The browser matrix is finishing. Its real-outage PWA check shuts down a dedicated test origin rather than relying solely on Firefox's offline emulator, which empirically leaves service-worker fetches online. API HTTP responses are explicitly private/no-store and never enter the service-worker cache.
+Browser validation covered 197 distinct scenarios across Chromium and Firefox at 390, 768 and 1280 pixels, plus focused iPhone WebKit checks. The broad 190-case matrix passed 187 cases and identified three Firefox offline-emulator assumptions. After correcting those checks and adding seven actual-origin outage cases, the final 20-case run passed completely: seven PWA metadata/cache checks, seven real outage/reconnection checks and six session notification/back/forward checks. No browser cases were skipped and no failures remain unresolved.
+
+The real-outage check shuts down its own origin, verifies the cached public offline page, restarts the origin and verifies reconnection. This supplements Firefox's offline emulator, which empirically leaves service-worker fetches online. All `/api/v1` HTTP responses explicitly carry `private, no-store`; private responses and mutations never enter the service-worker cache.
+
+The final production deployment uses application commit `e4354d8`. HTTPS checks confirmed `/health` returns 200, `/sw.js` serves the updated no-cache worker, and unauthenticated API responses return 401 with `Cache-Control: private, no-store`. The client bundle and every committed change passed credential scanning. The final report/test synchronization commit changes no deployed application code.
 
 Published code is available at https://eduquest-dun.vercel.app. Browser checks emulate screen sizes and iPhone WebKit; physical phone installation has not been exercised.
+
+Reproduction commands: `npm test`, `npm run test:python`, `npm run lint`, `npm run typecheck`, `npm run format:check`, `npm run build`, `npm run test:backup` and `npm run test:e2e`. Real PostgreSQL verification requires a disposable `REAL_TEST_DATABASE_URL`; production must never be reset or seeded. The final focused browser command was `npm run test:e2e -- --grep 'PWA serves|PWA survives|study sessions:'` (20/20 passed).

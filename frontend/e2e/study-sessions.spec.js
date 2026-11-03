@@ -129,6 +129,9 @@ test('study sessions: leader schedules, member RSVPs, calendars, notifications a
       .getByText('Cancelled: Room unavailable', { exact: true }),
   ).toBeVisible();
   await page.getByRole('button', { name: 'Log out' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Welcome back', exact: true }),
+  ).toBeVisible();
   await login('demo-student-2@example.com');
   await page.getByRole('button', { name: 'Study groups', exact: true }).click();
   const memberCard = page.locator('.group-card').filter({ hasText: groupName });
