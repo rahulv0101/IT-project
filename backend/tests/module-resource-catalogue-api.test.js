@@ -203,6 +203,26 @@ describe('student module and resource catalogue API', () => {
     await rm(tempDirectory, { recursive: true, force: true });
   });
 
+  it('returns saved join codes to the owning lecturer on every catalogue load', async () => {
+    for (const query of [{}, { search: 'Foundations', sort: 'name' }]) {
+      const result = await lecturerAgent.get('/api/v1/me/modules').query(query);
+      expect(result.status).toBe(200);
+      expect(result.body.data).toHaveLength(1);
+      expect(result.body.data[0]).toMatchObject({
+        module_id: ownModule.module_id,
+        join_code: ownModule.join_code,
+      });
+    }
+    const other = await otherLecturerAgent.get('/api/v1/me/modules');
+    expect(other.status).toBe(200);
+    expect(
+      other.body.data.some((m) => m.module_id === ownModule.module_id),
+    ).toBe(false);
+    expect(JSON.stringify(other.body)).not.toContain(ownModule.join_code);
+    const student = await firstYearAgent.get('/api/v1/me/modules');
+    expect(student.status).toBe(200);
+    expect(student.body.data[0]).not.toHaveProperty('join_code');
+  });
   it('returns all enrolled module cards with counts and lecturer details immediately', async () => {
     const result = await firstYearAgent.get('/api/v1/me/modules');
     expect(result.status).toBe(200);

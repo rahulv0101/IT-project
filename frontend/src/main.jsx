@@ -1731,6 +1731,21 @@ export function Modules({ user }) {
   const [createMessage, setCreateMessage] = useState('');
   const [joinCode, setJoinCode] = useState('');
   const [message, setMessage] = useState('');
+  const [copiedModule, setCopiedModule] = useState('');
+  const [copyNotice, setCopyNotice] = useState('');
+  const copyJoinCode = async (module) => {
+    setCopyNotice('');
+    try {
+      if (!navigator.clipboard?.writeText)
+        throw new Error('Clipboard unavailable');
+      await navigator.clipboard.writeText(module.join_code);
+      setCopiedModule(module.module_id);
+      setCopyNotice(`Join code for ${module.module_name} copied.`);
+    } catch {
+      setCopiedModule('');
+      setCopyNotice('Select the join code and copy it manually.');
+    }
+  };
   const createModule = async (event) => {
     event.preventDefault();
     setCreateMessage('');
@@ -1796,7 +1811,14 @@ export function Modules({ user }) {
         </div>
         <State state={state} empty="You are not enrolled in any modules yet." />
         <div className="module-card-grid">
-          {[...createdModules, ...state.data].map((module) => (
+          {[
+            ...new Map(
+              [...createdModules, ...state.data].map((module) => [
+                module.module_id,
+                module,
+              ]),
+            ).values(),
+          ].map((module) => (
             <article className="module-card" key={module.module_id}>
               <span className="eyebrow">{module.module_code}</span>
               <h3>{module.module_name}</h3>
@@ -1813,10 +1835,43 @@ export function Modules({ user }) {
               {module.has_in_progress_game && (
                 <span className="resume-badge">Game in progress</span>
               )}
-              {module.join_code && <small>JoinCode: {module.join_code}</small>}
+              {user.role === 'lecturer' && module.join_code && (
+                <div className="module-join-code">
+                  <label htmlFor={`join-code-${module.module_id}`}>
+                    Student join code
+                  </label>
+                  <div className="module-join-code-actions">
+                    <input
+                      id={`join-code-${module.module_id}`}
+                      aria-label={`Join code for ${module.module_name}`}
+                      value={module.join_code}
+                      readOnly
+                      spellCheck={false}
+                      autoComplete="off"
+                      onFocus={(event) => event.currentTarget.select()}
+                    />
+                    <button
+                      className="secondary"
+                      type="button"
+                      aria-label={`Copy join code for ${module.module_name}`}
+                      onClick={() => copyJoinCode(module)}
+                    >
+                      {copiedModule === module.module_id
+                        ? 'Copied'
+                        : 'Copy code'}
+                    </button>
+                  </div>
+                  <small>Share this code with students to enrol.</small>
+                </div>
+              )}
             </article>
           ))}
         </div>
+        {copyNotice && (
+          <p role="status" className="module-copy-notice">
+            {copyNotice}
+          </p>
+        )}
       </article>
       {user.role === 'student' && lookahead.data.length > 0 && (
         <article className="card lookahead-card">

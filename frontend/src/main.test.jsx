@@ -332,6 +332,71 @@ describe('Lecturer module creation', () => {
     vi.unstubAllGlobals();
   });
 
+  it('shows and copies the saved join code after the module screen is remounted', async () => {
+    const writeText = vi.fn().mockResolvedValue();
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        response({
+          data: [
+            {
+              module_id: 'saved-module',
+              module_code: 'SAVED101',
+              module_name: 'Saved module',
+              join_code: 'SAVED-JOIN-CODE',
+            },
+          ],
+        }),
+      ),
+    );
+    let view = render(<Modules user={{ role: 'lecturer' }} />);
+    expect(
+      (await screen.findByLabelText('Join code for Saved module')).value,
+    ).toBe('SAVED-JOIN-CODE');
+    view.unmount();
+    view = render(<Modules user={{ role: 'lecturer' }} />);
+    await screen.findByLabelText('Join code for Saved module');
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Copy join code for Saved module' }),
+    );
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith('SAVED-JOIN-CODE'),
+    );
+    expect(
+      await screen.findByText('Join code for Saved module copied.'),
+    ).toBeTruthy();
+  });
+  it('keeps saved codes selectable when clipboard access is unavailable', async () => {
+    vi.stubGlobal('navigator', {
+      clipboard: { writeText: vi.fn().mockRejectedValue(new Error('Denied')) },
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        response({
+          data: [
+            {
+              module_id: 'saved-module',
+              module_code: 'SAVED101',
+              module_name: 'Saved module',
+              join_code: 'SAVED-JOIN-CODE',
+            },
+          ],
+        }),
+      ),
+    );
+    render(<Modules user={{ role: 'lecturer' }} />);
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Copy join code for Saved module',
+      }),
+    );
+    await screen.findByText('Select the join code and copy it manually.');
+    expect(screen.getByLabelText('Join code for Saved module').value).toBe(
+      'SAVED-JOIN-CODE',
+    );
+  });
   it('creates a module and displays the generated JoinCode', async () => {
     vi.stubGlobal(
       'fetch',
@@ -365,7 +430,9 @@ describe('Lecturer module creation', () => {
       await screen.findByText(/Share JoinCode JOIN-123 with students/),
     ).toBeTruthy();
     expect(screen.getByText('Introduction to Computing')).toBeTruthy();
-    expect(screen.getByText('JoinCode: JOIN-123')).toBeTruthy();
+    expect(
+      screen.getByLabelText('Join code for Introduction to Computing').value,
+    ).toBe('JOIN-123');
   });
 });
 

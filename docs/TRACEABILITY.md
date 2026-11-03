@@ -359,3 +359,7 @@ Shared `memory_match/eligibility.js`, minimum configuration and migration 030 al
 ### Owner request: remove MFA — 2026-11-03
 
 Password-only sign-in and production admin access are implemented in `backend/src/app.js` and `backend/src/admin/routes.js`. `frontend/src/main.jsx` and `admin.jsx` no longer offer authenticator/recovery workflows. Migration 031 clears retired authentication material. The replacement `mfa-api.test.js` verifies password-only behavior against legacy credentials, role checks, retirement responses and migration preservation. The executable authorization matrix covers all retired routes; `system-sweep.spec.js` checks all three roles and retains registration email OTP coverage.
+
+### Lecturer join-code visibility after creation — 2026-11-03
+
+The lecturer-owned `/me/modules` catalogue includes saved join codes, displayed in selectable fields with Copy buttons by `Modules` in `frontend/src/main.jsx`. Catalogue API regressions cover repeated reads/search, other-lecturer boundaries and student response privacy. Component regressions cover remounting and successful/denied clipboard access. `module-joincode.spec.js` covers real reload, navigation, logout/login persistence, clipboard copying, mobile containment, accessibility and student presentation.

@@ -1689,6 +1689,7 @@ app.get('/api/v1/me/modules', requireAuth, async (req, res, next) => {
     const pageValues = [...values, query.pageSize, offset];
     const result = await pool.query(
       `SELECT m.module_id,m.module_code,m.module_name,m.description,m.year,m.programme,m.offering,
+              ${req.user.role === 'lecturer' ? 'm.join_code,' : ''}
               u.full_name AS lecturer_name,
               (SELECT count(*)::int FROM quizzes q WHERE q.module_id=m.module_id AND q.status='published') AS quizzes_available,
               (SELECT count(*)::int FROM resources r WHERE r.module_id=m.module_id AND r.created_date >= now()-interval '14 days'${visibleResource}) AS new_resources_count,

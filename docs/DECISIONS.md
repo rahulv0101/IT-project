@@ -304,3 +304,9 @@ claiming this requirement done. No paid API was used for these attempts.
 - Former MFA routes return `410 MFA_REMOVED` and cannot issue sessions or new credentials. Authenticated legacy management URLs retain authentication checks. This gives existing open tabs a clear instruction to return to password login.
 - Migration 031 removes saved authenticator secrets, recovery codes and login challenges. It preserves users, password hashes, roles, sessions, verification records and academic data. Historical tables remain empty for migration/backup compatibility; legacy response fields report `mfa_enabled=false`.
 - QR-generation dependencies, MFA helpers and the MFA encryption-key startup requirement are removed. Tests exercise legacy enabled credential rows, production admin access, rejected wrong passwords, role boundaries, retired endpoints and migration data preservation.
+
+### 2026-11-03 — Persist lecturer access to module join codes
+
+- The saved-module catalogue omitted `join_code`, while creation returned it. The UI therefore displayed a code only until its local creation state was lost on navigation or reload.
+- The lecturer catalogue now includes each owned module's existing code. Student catalogue responses continue to omit it, and lecturer ownership restrictions remain enforced.
+- Lecturer module cards label the selectable code “Student join code”, explain how to share it, and provide clipboard copying with a manual-copy fallback. Newly created and fetched module cards are deduplicated by ID.

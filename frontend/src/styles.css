@@ -2757,6 +2757,36 @@ input[type='radio'] {
   background: #e4e7fb;
   color: #14213d;
 }
+.module-join-code {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  margin-top: 8px;
+  border-top: 1px solid #e3dfd5;
+}
+.module-join-code label {
+  font-size: 13px;
+  font-weight: 700;
+}
+.module-join-code-actions {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+.module-join-code input {
+  min-width: 0;
+  width: 100%;
+  flex: 1;
+  font-family: monospace;
+  font-size: 14px;
+}
+.module-join-code button {
+  flex-shrink: 0;
+}
+.module-join-code small,
+.module-copy-notice {
+  color: #4b5572;
+}
 .lookahead-card {
   border-left: 5px solid #f2a93b;
 }
